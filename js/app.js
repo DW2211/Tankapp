@@ -680,7 +680,25 @@ store.onChange((kind) => {
   }
 });
 
+/** Einrichtungs-Link: …/#setup&key=…&sheets=…&secret=… trägt alles mit einem Tipp ein */
+function applySetupLink() {
+  if (!location.hash.startsWith('#setup')) return false;
+  const p = new URLSearchParams(location.hash.slice(6));
+  const patch = {};
+  if (p.get('key')) patch.apiKey = p.get('key');
+  if (p.get('sheets')) { patch.sheetsUrl = p.get('sheets'); patch.autoSync = true; }
+  if (p.get('secret')) patch.sheetsSecret = p.get('secret');
+  if (p.get('car')) patch.vehicle = p.get('car');
+  history.replaceState(null, '', location.pathname);
+  if (!Object.keys(patch).length) return false;
+  store.setSettings(patch);
+  toast('✅ Einrichtung übernommen', 4000);
+  if (patch.sheetsUrl) doSync(false);
+  return true;
+}
+
 function start() {
+  applySetupLink();
   renderAll();
   const hash = location.hash.slice(1);
   if (['stations', 'log', 'tax', 'settings'].includes(hash)) nav(hash);
