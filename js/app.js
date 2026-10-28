@@ -1,7 +1,7 @@
 import { $, $$, eur, num, fuelPrice, signed, parseNum, isNum, uid, toast, haptic, download, fmtDate, fmtTime, monthName, toLocalInput, esc, DAY, avg, sum } from './util.js';
 import * as store from './store.js';
 import { renderChart, hoverDate } from './charts.js';
-import { fetchStations, marketSnapshot, sortStations, displayName, mapsLink, effectiveCost } from './stations.js';
+import { fetchStations, marketSnapshot, sortStations, displayName, mapsLink, DISCOUNT_PRESETS, ROAD_FACTOR } from './stations.js';
 import { scanReceipt, compressImage } from './ocr.js';
 import { syncToSheets, uploadReceipts, fetchBackup, fetchReceipt, markUploaded } from './sheets.js';
 import { yearReport, commuteAllowance, exportCsv, printReport, exportReceipts } from './tax.js';
@@ -223,19 +223,39 @@ function consumptionSetting() {
   return S().consumption || stats.avgConsumption(store.getEntries()) || 7;
 }
 
+/** Menge, die man typischerweise tankt (einstellbar, sonst aus dem Verlauf) */
+function fillLiters() {
+  return S().fillLiters || Math.round(avgTankLiters());
+}
+
+const calcOpts = (extra = {}) => ({ liters: fillLiters(), consumption: consumptionSetting(), discounts: S().discounts, ...extra });
+
+/** „Lohnt sich der Weg?“ – Ersparnis ggü. der nächstgelegenen Tankstelle inkl. Hin- und Rückweg */
+function verdict(st) {
+  if (st.nearest) return '<span class="verdict near">📍 Nächste Tankstelle</span>';
+  const extra = st.extraKm > 0.3 ? ` · +${num(st.extraKm, 1)} km Umweg, ~${st.extraMin} Min` : '';
+  if (st.saving >= 0.05) return `<span class="verdict good">✓ Lohnt sich: spart ${eur(st.saving)}${extra}</span>`;
+  if (st.saving > -0.05) return `<span class="verdict even">≈ Gleich teuer wie die nächste${extra}</span>`;
+  return `<span class="verdict bad">✗ Lohnt nicht: ${eur(-st.saving)} teurer${extra}</span>`;
+}
+
+const discTag = (st) => (st.disc ? `<span class="tag disc">−${num(st.disc.ct, 1, 0)} ct ${esc(st.disc.label)}</span>` : '');
+
 function stationCard(st, i, ref, compact) {
-  const delta = ref != null ? (st.price - ref) * 100 : null;
-  const smart = S().sort === 'smart' && !compact;
-  const extra = smart ? ` · Füllung ${eur(effectiveCost(st, avgTankLiters(), consumptionSetting()), 2)} inkl. Weg` : '';
-  const isBest = delta != null && delta < 0.05 && st.isOpen;
+  const delta = ref != null ? (st.eff - ref) * 100 : null;
+  const isBest = i === 0 && st.isOpen;
   return `<div class="station ${isBest && !compact ? 'best' : ''}">
     ${brandBadge(st.brand || st.name)}
     <div style="min-width:0">
       <div class="name">${esc(displayName(st))}${st.isOpen ? '' : '<span class="tag closed">GESCHLOSSEN</span>'}</div>
-      <div class="addr">${num(st.dist, 1)} km · ${esc(st.street)}${compact ? '' : ', ' + esc(st.place)}${extra}</div>
+      <div class="addr">${num(st.dist, 1)} km · ${esc(st.street)}${compact ? '' : ', ' + esc(st.place)}</div>
     </div>
-    <div><div class="price num">${fuelPrice(st.price)}</div>${isBest ? '<div class="delta best-tag">★ Bestpreis</div>' : delta != null ? `<div class="delta up">▲ ${num(delta, 1)} ct</div>` : ''}</div>
-    ${compact ? '' : `<div class="actions"><a href="${mapsLink(st)}" target="_blank" rel="noopener">${ICONS.route}Route</a><button data-fill="${st.id}">${ICONS.plus}Hier getankt</button></div>`}
+    <div>
+      <div class="price num">${fuelPrice(st.eff)}</div>
+      ${st.disc ? `<div class="was num">${num(st.price, 3)}</div>` : delta != null && !isBest && delta > 0.05 ? `<div class="delta up">▲ ${num(delta, 1)} ct</div>` : isBest ? '<div class="delta best-tag">★ Beste Wahl</div>' : ''}
+    </div>
+    <div class="st-foot">${verdict(st)}${discTag(st)}</div>
+    ${compact ? '' : `<div class="actions"><a href="${mapsLink(st)}" target="_blank" rel="noopener">${ICONS.route}Route</a><button data-fill="${st.id}" data-eff="${st.eff}">${ICONS.plus}Hier getankt</button></div>`}
   </div>`;
 }
 
@@ -260,24 +280,25 @@ function renderHero() {
     return;
   }
   if (!stationData) { el.innerHTML = '<div class="hero-skeleton"><i></i><i></i><i></i></div>'; return; }
-  const list = sortStations(stationData.stations, 'price', { openOnly: true });
+  const list = sortStations(stationData.stations, 'smart', calcOpts({ openOnly: true }));
   if (!list.length) {
     el.innerHTML = `<div class="hero-top"><span class="hero-label"><i class="live-dot"></i> Jetzt tanken</span></div><h3>Alles geschlossen</h3><p>Im Umkreis von ${S().radius} km hat gerade keine Tankstelle geöffnet.</p>`;
     return;
   }
   const best = list[0];
   const ref = stats.totals(stats.inRange(store.getEntries(), Date.now() - 120 * DAY)).avgPrice;
-  const d = isNum(ref) ? (best.price - ref) * 100 : NaN;
-  let badge = `Günstigste von ${list.length}`;
+  const d = isNum(ref) ? (best.eff - ref) * 100 : NaN;
+  let badge = `Beste von ${list.length}`;
   if (isNum(d) && d < -1) { el.classList.add('good'); badge = `▼ ${num(-d, 1)} ct unter deinem Ø`; }
   else if (isNum(d) && d > 2) { el.classList.add('bad'); badge = `▲ ${num(d, 1)} ct über deinem Ø`; }
   el.innerHTML = `<div class="hero-top"><span class="hero-label"><i class="live-dot"></i> Jetzt tanken</span><span class="hero-badge">${badge}</span></div>
     <div class="hero-price" id="hero-price"></div>
     <div class="hero-station">${brandBadge(best.brand || best.name)}<div style="min-width:0"><b>${esc(displayName(best))}</b><span>${num(best.dist, 1)} km · ${esc(best.street)}</span></div></div>
+    <div class="hero-why">${best.nearest ? 'Nächste Tankstelle und gleichzeitig die beste Wahl' : `Spart <b>${eur(best.saving)}</b> ggü. der nächsten – Umweg schon eingerechnet`}${best.disc ? ` · inkl. −${num(best.disc.ct, 1, 0)} ct ${esc(best.disc.label)}` : ''}</div>
     <div class="hero-actions"><a class="solid" href="${mapsLink(best)}" target="_blank" rel="noopener">${ICONS.route} Route</a><button data-fill="${best.id}">${ICONS.plus} Hier getankt</button></div>`;
   const fmt = (v) => `${fuelPrice(v)}<small>€/L</small>`;
-  countUp($('#hero-price'), isNum(heroPrice) ? heroPrice : best.price + 0.15, best.price, fmt);
-  heroPrice = best.price;
+  countUp($('#hero-price'), isNum(heroPrice) ? heroPrice : best.eff + 0.15, best.eff, fmt);
+  heroPrice = best.eff;
 }
 
 function renderNearby() {
@@ -286,9 +307,9 @@ function renderNearby() {
   const wrap = [el, el.previousElementSibling];
   const hide = (h) => wrap.forEach((x) => (x.hidden = h));
   if (stationError || !stationData) return hide(true);
-  const list = sortStations(stationData.stations, 'price', { openOnly: true });
+  const list = sortStations(stationData.stations, 'smart', calcOpts({ openOnly: true }));
   hide(list.length < 2);
-  el.innerHTML = list.slice(1, 4).map((s, i) => stationCard(s, i + 1, list[0].price, true)).join('');
+  el.innerHTML = list.slice(1, 4).map((s, i) => stationCard(s, i + 1, list[0].eff, true)).join('');
 }
 
 function renderStations() {
@@ -299,13 +320,15 @@ function renderStations() {
   const el = $('#stations-list');
   if (stationError) { el.innerHTML = stationProblem(); $('#stations-meta').textContent = ''; return; }
   if (!stationData) { el.innerHTML = '<div class="empty">Lade Preise …</div>'; return; }
-  const list = sortStations(stationData.stations, s.sort, { openOnly: s.openOnly, liters: avgTankLiters(), consumption: consumptionSetting() });
-  const cheapest = list.length ? Math.min(...list.map((x) => x.price)) : null;
+  const list = sortStations(stationData.stations, s.sort, calcOpts({ openOnly: s.openOnly }));
+  const cheapest = list.length ? Math.min(...list.map((x) => x.eff)) : null;
   el.innerHTML = list.length ? list.map((st, i) => stationCard(st, i, cheapest, false)).join('') : '<div class="empty">Keine Tankstellen gefunden. Umkreis vergrößern?</div>';
   const prices = list.map((x) => x.price);
   $('#stations-meta').textContent = list.length
-    ? `${list.length} Tankstellen · Spanne ${num(Math.min(...prices), 3)}–${num(Math.max(...prices), 3)} € · Stand ${fmtTime(stationData.fetchedAt)}`
+    ? `${list.length} Tankstellen · ${num(Math.min(...prices), 3)}–${num(Math.max(...prices), 3)} € · Stand ${fmtTime(stationData.fetchedAt)}`
     : '';
+  if (document.activeElement !== $('#calc-liters')) $('#calc-liters').value = fillLiters();
+  $('#calc-explain').innerHTML = `Verbrauch ${num(consumptionSetting(), 1)} L/100 km · Weg hin & zurück, Straße ≈ ${num(ROAD_FACTOR, 1)} × Luftlinie${(s.discounts || []).some((d) => d.on) ? ' · deine Rabatte abgezogen' : ''}`;
 }
 
 $('#stations-refresh').addEventListener('click', () => { haptic(); loadStations(true); });
@@ -317,8 +340,59 @@ document.addEventListener('click', (e) => {
   const f = e.target.closest('[data-fill]');
   if (f) {
     const st = stationData.stations.find((x) => x.id === f.dataset.fill);
-    openEntry(null, { station: `${displayName(st)} ${st.street}`, price: st.price });
+    openEntry(null, { station: `${displayName(st)} ${st.street}`, price: +f.dataset.eff || st.price });
   }
+});
+
+$('#calc-liters').addEventListener('change', (e) => {
+  const v = parseNum(e.target.value);
+  store.setSettings({ fillLiters: v > 0 ? v : null }, true);
+  renderStations(); renderNearby();
+});
+
+/* ---------- Meine Rabatte ---------- */
+function discounts() {
+  // Vorlagen ergänzen, die es beim Anlegen der Einstellungen noch nicht gab
+  const list = [...(S().discounts || [])];
+  for (const p of DISCOUNT_PRESETS) if (!list.some((d) => d.id === p.id)) list.push({ ...p, on: false });
+  return list;
+}
+
+function renderDiscounts() {
+  const now = Date.now();
+  $('#discount-list').innerHTML = discounts().map((d) => {
+    const expired = d.until && now > new Date(d.until + 'T23:59:59').getTime();
+    return `<div class="row disc-row ${expired ? 'expired' : ''}">
+      ${brandBadge(d.brand)}
+      <span class="disc-text"><b>${esc(d.label)}</b><small>${esc(d.brand)} · −${num(d.ct, 1, 0)} ct/L${d.until ? ` · ${expired ? 'abgelaufen' : 'bis'} ${fmtDate(d.until)}` : ''}${d.note ? ' · ' + esc(d.note) : ''}</small></span>
+      ${d.custom ? `<button class="x-btn" data-disc-del="${d.id}" aria-label="Löschen">✕</button>` : ''}
+      <span class="switch"><input type="checkbox" data-disc="${d.id}" ${d.on ? 'checked' : ''} ${expired ? 'disabled' : ''}><i></i></span>
+    </div>`;
+  }).join('');
+}
+
+$('#discount-list').addEventListener('change', (e) => {
+  const id = e.target.dataset.disc;
+  if (!id) return;
+  haptic();
+  store.setSettings({ discounts: discounts().map((d) => (d.id === id ? { ...d, on: e.target.checked } : d)) });
+  renderDiscounts();
+});
+$('#discount-list').addEventListener('click', (e) => {
+  const id = e.target.closest('[data-disc-del]')?.dataset.discDel;
+  if (!id) return;
+  store.setSettings({ discounts: discounts().filter((d) => d.id !== id) });
+  renderDiscounts();
+});
+$('#disc-add').addEventListener('click', () => {
+  const brand = $('#disc-brand').value.trim().toUpperCase();
+  const ct = parseNum($('#disc-ct').value);
+  if (!brand || !(ct > 0)) return toast('Bitte Marke und Cent pro Liter angeben');
+  const d = { id: 'c_' + uid(), brand, ct, label: $('#disc-label').value.trim() || 'Mein Rabatt', until: $('#disc-until').value || null, on: true, custom: true };
+  store.setSettings({ discounts: [...discounts(), d] });
+  ['#disc-brand', '#disc-ct', '#disc-label', '#disc-until'].forEach((x) => ($(x).value = ''));
+  renderDiscounts();
+  toast('Rabatt hinzugefügt');
 });
 
 /* =========================================================
@@ -621,7 +695,7 @@ $('#fab-add').addEventListener('click', () => openEntry(null));
 
 function updateSuggestions() {
   const names = new Set();
-  if (stationData) sortStations(stationData.stations, 'dist', {}).slice(0, 8).forEach((s) => names.add(`${displayName(s)} ${s.street}`));
+  if (stationData) sortStations(stationData.stations, 'dist', calcOpts()).slice(0, 8).forEach((s) => names.add(`${displayName(s)} ${s.street}`));
   store.getEntries().slice(-30).reverse().forEach((e) => e.station && names.add(e.station));
   $('#station-suggestions').innerHTML = [...names].map((n) => `<option value="${esc(n)}">`).join('');
 }
@@ -636,6 +710,7 @@ const SETTINGS_FIELDS = [
 ];
 
 function fillSettings() {
+  renderDiscounts();
   const s = S();
   for (const [sel, key, type] of SETTINGS_FIELDS) {
     if (type === 'bool') $(sel).checked = !!s[key];
@@ -791,6 +866,7 @@ function renderAll() {
 
 store.onChange((kind) => {
   renderAll();
+  if (kind === 'settings') renderStations();
   // nie automatisch ein leeres Tankbuch über die Sicherung schreiben
   if (kind === 'entries' && S().autoSync && S().sheetsUrl && !restoring && store.getEntries().length) {
     clearTimeout(syncTimer);

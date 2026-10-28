@@ -269,6 +269,32 @@ main { position: relative; z-index: 1; max-width: 680px; margin: 0 auto; padding
 .footnote { font-size: 12px; color: var(--muted); text-align: center; margin: 4px 8px; line-height: 1.5; }
 .footnote.left { text-align: left; margin-top: -6px; }
 
+/* ---------- Lohnt sich der Weg? ---------- */
+.st-foot { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: -2px; }
+.verdict { font-size: 13px; font-weight: 650; padding: 4px 9px; border-radius: 8px; background: var(--surface-2); color: var(--text-2); }
+.verdict.good { color: var(--down); background: color-mix(in srgb, var(--down) 14%, transparent); }
+.verdict.bad { color: var(--up); background: color-mix(in srgb, var(--up) 12%, transparent); }
+.verdict.near { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.tag.disc { margin-left: 0; font-size: 12px; padding: 4px 8px; border-radius: 8px; color: #bf5af2; background: color-mix(in srgb, #bf5af2 15%, transparent); vertical-align: 0; letter-spacing: 0; }
+.station .was { font: 600 12px var(--rounded); text-align: right; color: var(--muted); text-decoration: line-through; margin-top: 3px; }
+.hero-why { font-size: 13px; opacity: .9; margin-top: 10px; line-height: 1.4; }
+.calc-bar { background: var(--grad-soft); border: .5px solid var(--stroke); border-radius: var(--r-lg); padding: 12px 14px; }
+.calc-top { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.calc-title { font-weight: 750; font-size: 15px; }
+.calc-liters { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; color: var(--text-2); }
+.calc-liters input { width: 58px; padding: 6px 8px; text-align: center; font: 800 16px var(--rounded); border-radius: 10px; background: var(--surface-solid); }
+.calc-explain { font-size: 12px; color: var(--muted); margin-top: 6px; }
+.disc-row { gap: 12px; }
+.disc-row .brand-badge { width: 34px; height: 34px; border-radius: 10px; font-size: 10px; }
+.disc-row .disc-text { flex: 1 !important; min-width: 0; }
+.disc-row .disc-text b { display: block; font-size: 15px; font-weight: 650; }
+.disc-row .disc-text small { display: block; font-size: 12px; color: var(--muted); }
+.disc-row.expired { opacity: .45; }
+.row.disc-row + .row::before { left: 62px; }
+.x-btn { border: 0; background: var(--surface-2); color: var(--muted); width: 28px; height: 28px; border-radius: 50%; font-size: 12px; flex: none; }
+.disc-add-grid { display: grid; grid-template-columns: 1.4fr .8fr; gap: 8px; padding: 12px 14px 4px; }
+.disc-add-grid input { padding: 10px 12px; font-size: 15px; }
+
 /* ---------- Verlauf ---------- */
 .stat-strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .stat-strip div { background: var(--surface); border: .5px solid var(--stroke); border-radius: var(--r-md); padding: 12px; min-width: 0; -webkit-backdrop-filter: var(--glass); backdrop-filter: var(--glass); }

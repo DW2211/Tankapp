@@ -8,7 +8,9 @@ const DEFAULT_SETTINGS = {
   fuel: 'E10',
   apiKey: '',
   radius: 5,
-  sort: 'price',
+  sort: 'smart',
+  fillLiters: null,
+  discounts: [],
   openOnly: true,
   alarm: null,
   consumption: null,
@@ -33,11 +35,17 @@ function load() {
     return {
       entries: raw.entries || [],
       snapshots: raw.snapshots || [],
-      settings: { ...DEFAULT_SETTINGS, ...(raw.settings || {}) },
+      settings: migrate({ ...DEFAULT_SETTINGS, ...(raw.settings || {}) }),
     };
   } catch {
     return { entries: [], snapshots: [], settings: { ...DEFAULT_SETTINGS } };
   }
+}
+
+/** Einmalige Anpassungen alter Einstellungen */
+function migrate(s) {
+  if (!s.v2) { s.sort = 'smart'; s.v2 = true; } // neue Standard-Sortierung „Beste Wahl“
+  return s;
 }
 
 function persist() {

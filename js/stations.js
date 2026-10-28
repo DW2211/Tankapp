@@ -49,20 +49,62 @@ export function marketSnapshot(stations) {
   return { t: Date.now(), min: best.price, avg: Math.round(avg(list, (s) => s.price) * 1000) / 1000, n: list.length, station: displayName(best) };
 }
 
+/** Tankerkönig liefert Luftlinie – auf der Straße ist der Weg im Schnitt rund 30 % länger */
+export const ROAD_FACTOR = 1.3;
+
 /**
- * "Preis + Weg": Was kostet die Tankfüllung inkl. Hin- und Rückweg?
- * Damit wird die 1 ct billigere Tankstelle 8 km weiter weg nicht fälschlich empfohlen.
+ * Vorlagen bekannter Rabattprogramme (Stand Oktober 2026, ohne Gewähr).
+ * Rabatte hängen an Karten/Mitgliedschaften, deshalb schaltet man selbst an, was man hat.
  */
-export function effectiveCost(station, liters, consumption) {
-  const detourL = ((station.dist * 2) / 100) * consumption;
-  return station.price * (liters + detourL);
+export const DISCOUNT_PRESETS = [
+  { id: 'aral-payback-coupon', brand: 'ARAL', ct: 5, label: 'PAYBACK-Coupon', until: '2026-11-15', note: 'einmal pro Konto einlösbar' },
+  { id: 'shell-clubsmart', brand: 'SHELL', ct: 2, label: 'ClubSmart Sofortrabatt' },
+  { id: 'shell-adac', brand: 'SHELL', ct: 1, label: 'ADAC-Mitglied', until: '2026-12-31' },
+  { id: 'esso-adac', brand: 'ESSO', ct: 1, label: 'ADAC-Mitglied' },
+];
+
+const brandOf = (st) => `${st.brand} ${st.name}`.toUpperCase();
+const isActive = (d, now) => d.on && (!d.until || now <= new Date(d.until + 'T23:59:59').getTime());
+
+/** Höchster aktiver Rabatt für eine Tankstelle – Rabatte einer Marke lassen sich meist nicht addieren */
+export function activeDiscount(station, discounts = [], now = Date.now()) {
+  const b = brandOf(station);
+  return discounts
+    .filter((d) => isActive(d, now) && d.brand && b.includes(d.brand.toUpperCase()))
+    .reduce((best, d) => (!best || d.ct > best.ct ? d : best), null);
 }
 
-export function sortStations(stations, sort, { openOnly, liters, consumption }) {
-  let list = openOnly ? stations.filter((s) => s.isOpen) : [...stations];
+/**
+ * Rechnet für jede Tankstelle aus, was die Tankfüllung inklusive Hin- und Rückweg kostet,
+ * und vergleicht mit der nächstgelegenen geöffneten Tankstelle.
+ * So wird die 1 ct billigere Tankstelle 8 km weiter weg nicht fälschlich empfohlen.
+ */
+export function evaluate(stations, { liters, consumption, discounts }) {
+  const withCost = stations.map((st) => {
+    const disc = activeDiscount(st, discounts);
+    const eff = st.price - (disc ? disc.ct / 100 : 0);
+    const roundKm = st.dist * 2 * ROAD_FACTOR;
+    const wayL = (roundKm / 100) * consumption;
+    return { ...st, disc, eff, roundKm, wayL, cost: eff * (liters + wayL) };
+  });
+  const open = withCost.filter((s) => s.isOpen);
+  const nearest = (open.length ? open : withCost).reduce((a, b) => (b.dist < a.dist ? b : a), withCost[0]);
+  return withCost.map((s) => ({
+    ...s,
+    nearest: s.id === nearest?.id,
+    saving: nearest ? nearest.cost - s.cost : 0,
+    extraKm: nearest ? s.roundKm - nearest.roundKm : 0,
+    // Stadtverkehr ~30 km/h → 2 Minuten pro Kilometer
+    extraMin: nearest ? Math.max(0, Math.round((s.roundKm - nearest.roundKm) * 2)) : 0,
+  }));
+}
+
+export function sortStations(stations, sort, { openOnly, liters = 40, consumption = 7, discounts = [] }) {
+  let list = evaluate(stations, { liters, consumption, discounts });
+  if (openOnly) list = list.filter((s) => s.isOpen);
   if (sort === 'dist') list.sort((a, b) => a.dist - b.dist);
-  else if (sort === 'smart') list.sort((a, b) => effectiveCost(a, liters, consumption) - effectiveCost(b, liters, consumption));
-  else list.sort((a, b) => a.price - b.price || a.dist - b.dist);
+  else if (sort === 'smart') list.sort((a, b) => a.cost - b.cost || a.dist - b.dist);
+  else list.sort((a, b) => a.eff - b.eff || a.dist - b.dist);
   return list;
 }
 

@@ -106,9 +106,16 @@
           </select>
         </label>
         <label class="select-pill"><svg viewBox="0 0 24 24"><path d="M3 6h18M6 12h12M10 18h4"/></svg>
-          <select id="st-sort"><option value="price">Preis</option><option value="dist">Entfernung</option><option value="smart">Preis + Weg</option></select>
+          <select id="st-sort"><option value="smart">Beste Wahl</option><option value="price">Literpreis</option><option value="dist">Entfernung</option></select>
         </label>
         <label class="toggle-pill"><input type="checkbox" id="st-open" checked><span>Geöffnet</span></label>
+      </div>
+      <div class="calc-bar">
+        <div class="calc-top">
+          <span class="calc-title">Lohnt sich der Weg?</span>
+          <label class="calc-liters">Ich tanke ca. <input id="calc-liters" type="number" inputmode="numeric" min="5" max="150" step="1"> L</label>
+        </div>
+        <div class="calc-explain" id="calc-explain"></div>
       </div>
       <div class="meta-line" id="stations-meta"></div>
       <div id="stations-list" class="station-list"></div>
@@ -169,6 +176,19 @@
         <label class="row"><span>Verbrauch für Umweg</span><span class="row-input"><input type="number" inputmode="decimal" id="set-cons" step="0.1" placeholder="auto"><em>L/100</em></span></label>
       </div>
       <p class="footnote left">Kostenloser Key: <a href="https://onboarding.tankerkoenig.de/" target="_blank" rel="noopener">onboarding.tankerkoenig.de</a>. Bleibt nur auf deinem Gerät.</p>
+
+      <div class="section-head"><h2>Meine Rabatte</h2></div>
+      <div class="group" id="discount-list"></div>
+      <div class="group disc-add">
+        <div class="disc-add-grid">
+          <input id="disc-brand" placeholder="Marke, z. B. ARAL" autocapitalize="characters">
+          <input id="disc-ct" type="number" inputmode="decimal" step="0.5" min="0" placeholder="ct/L">
+          <input id="disc-label" placeholder="Bezeichnung, z. B. Firmenkarte">
+          <input id="disc-until" type="date" title="gültig bis (optional)">
+        </div>
+        <button class="row action" id="disc-add"><span class="row-icon" style="--c:#30d158"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span><span>Eigenen Rabatt hinzufügen</span></button>
+      </div>
+      <p class="footnote left">Schalte an, was du hast – die App zieht den Rabatt vom Preis ab und rechnet ihn bei „Beste Wahl“ mit ein. Pro Marke zählt der höchste Rabatt (meist nicht kombinierbar). Vorlagen: Stand Oktober 2026, bitte in der jeweiligen App prüfen.</p>
 
       <div class="section-head"><h2>Google Sheets & Sicherung</h2></div>
       <div class="group">
