@@ -20,12 +20,11 @@ Eine installierbare Web-App (PWA). Sie läuft auf iPhone und Android wie eine no
 
 ## Einrichtung
 
-### 1. App online stellen (GitHub Pages, kostenlos)
-1. Im Repository: **Settings → Pages → Branch: `main` / Ordner: `/ (root)`** → Save.
-2. Nach ~1 Minute läuft die App unter `https://<dein-name>.github.io/Tankapp/`.
-3. Am Handy öffnen → **Teilen → Zum Home-Bildschirm** (iPhone) bzw. **⋮ → App installieren** (Android).
+### 1. App öffnen
+Die App läuft unter **<https://dw2211.github.io/Tankapp/>** (GitHub Pages aus dem Branch `gh-pages`, der ein Spiegel von `main` ist).
+Am Handy öffnen → **Teilen → Zum Home-Bildschirm** (iPhone) bzw. **⋮ → App installieren** (Android).
 
-> HTTPS ist Pflicht für Kamera und Standort, GitHub Pages liefert das automatisch.
+**Einrichtungs-Link:** `https://dw2211.github.io/Tankapp/#setup&key=<Tankerkönig-Key>&sheets=<Apps-Script-URL>&secret=<Schlüssel>&car=<Name>` trägt alles mit einem Tipp ein (alle Parameter optional).
 
 ### 2. Live-Preise freischalten
 1. Kostenlosen API-Key holen: <https://onboarding.tankerkoenig.de/>
