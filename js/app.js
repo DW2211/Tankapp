@@ -1,0 +1,699 @@
+import { $, $$, eur, num, fuelPrice, signed, parseNum, isNum, uid, toast, haptic, download, fmtDate, fmtTime, monthName, toLocalInput, esc, DAY, avg, sum } from './util.js';
+import * as store from './store.js';
+import { renderChart, hoverDate } from './charts.js';
+import { fetchStations, marketSnapshot, sortStations, displayName, mapsLink, effectiveCost } from './stations.js';
+import { scanReceipt, compressImage } from './ocr.js';
+import { syncToSheets } from './sheets.js';
+import { yearReport, commuteAllowance, exportCsv, printReport, exportReceipts } from './tax.js';
+import * as stats from './stats.js';
+import { demoData } from './demo.js';
+
+const S = store.getSettings;
+let stationData = null;   // { stations, pos, fetchedAt }
+let stationError = null;
+let chartHead = null;
+
+/* =========================================================
+   Navigation
+   ========================================================= */
+function nav(view) {
+  $$('.view').forEach((v) => v.classList.toggle('active', v.id === `view-${view}`));
+  $$('.tabbar [data-nav]').forEach((b) => b.classList.toggle('on', b.dataset.nav === view));
+  window.scrollTo({ top: 0 });
+  if (view === 'stations') renderStations();
+  if (view === 'log') renderLog();
+  if (view === 'tax') renderTax();
+  if (view === 'settings') fillSettings();
+  if (view === 'home') requestAnimationFrame(renderChartBlock);
+  history.replaceState(null, '', view === 'home' ? location.pathname : `#${view}`);
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-nav]');
+  if (b) { haptic(); nav(b.dataset.nav); }
+});
+
+/* =========================================================
+   Home: Ticker-Chart
+   ========================================================= */
+function renderChartBlock() {
+  const s = S();
+  $$('#chart-mode button').forEach((b) => b.classList.toggle('on', b.dataset.mode === s.chartMode));
+  $$('#chart-range button').forEach((b) => b.classList.toggle('on', b.dataset.range === s.chartRange));
+  $('#chart-style').textContent = s.chartStyle === 'candle' ? 'Kerzen' : 'Linie';
+  $('#chart-style').hidden = s.chartMode !== 'price';
+  chartHead = renderChart({ entries: store.getEntries(), snapshots: store.getSnapshots(), mode: s.chartMode, range: s.chartRange, style: s.chartStyle }, onHover);
+  setTicker(chartHead);
+  $('#chart-legend').innerHTML = chartHead.legend;
+}
+
+function setTicker(h) {
+  $('#ticker-label').textContent = h.label;
+  $('#ticker-price').innerHTML = h.price;
+  const c = $('#ticker-change');
+  c.innerHTML = h.change;
+  c.className = `ticker-change ${h.cls}`;
+}
+
+function onHover(info) {
+  if (!info) return chartHead && setTicker(chartHead);
+  const [main, extra] = info.html.split(' <small>');
+  $('#ticker-price').innerHTML = main;
+  const c = $('#ticker-change');
+  c.className = 'ticker-change muted';
+  c.innerHTML = `${hoverDate(info.date)}${extra ? ' · ' + extra.replace('</small>', '') : ''}`;
+}
+
+$('#chart-mode').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  haptic(); store.setSettings({ chartMode: b.dataset.mode }, true); renderChartBlock();
+});
+$('#chart-range').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  haptic(); store.setSettings({ chartRange: b.dataset.range }, true); renderChartBlock();
+});
+$('#chart-style').addEventListener('click', () => {
+  haptic(); store.setSettings({ chartStyle: S().chartStyle === 'candle' ? 'line' : 'candle' }, true); renderChartBlock();
+});
+
+/* =========================================================
+   Home: KPIs & Insights
+   ========================================================= */
+function renderKpis() {
+  const entries = store.getEntries();
+  const [m0, m1] = stats.monthRange(0), [p0, p1] = stats.monthRange(-1);
+  const year = new Date().getFullYear();
+  const thisMonth = stats.totals(stats.inRange(entries, m0, m1));
+  const lastMonth = stats.totals(stats.inRange(entries, p0, p1));
+  const ytd = stats.totals(stats.inRange(entries, ...stats.yearRange(year)));
+  const dayOfYear = (Date.now() - new Date(year, 0, 1)) / DAY;
+  const last12 = stats.totals(stats.inRange(entries, Date.now() - 365 * DAY));
+  const cons = stats.avgConsumption(entries);
+  const c100 = stats.avgCostPer100(entries);
+  const best = entries.length ? entries.reduce((a, b) => (b.price < a.price ? b : a)) : null;
+  const sv = stats.savings(entries, store.getSnapshots());
+  const kmYtd = stats.kmDriven(stats.inRange(entries, ...stats.yearRange(year)));
+
+  const delta = thisMonth.total - lastMonth.total;
+  const kpi = (label, value, sub = '', cls = '') => `<div class="kpi"><div class="label">${label}</div><div class="value ${cls}">${value}</div><div class="sub">${sub}</div></div>`;
+  $('#kpis').innerHTML = [
+    kpi('Diesen Monat', eur(thisMonth.total), lastMonth.count ? `<span class="${delta > 0 ? 'up' : 'down'}">${signed(delta, 0)} €</span> ggü. Vormonat` : `${thisMonth.count} Tankungen`),
+    kpi(`Seit 1.1.${year}`, eur(ytd.total, 0), ytd.count && dayOfYear > 20 ? `Prognose ${eur((ytd.total / dayOfYear) * 365, 0)}` : `${ytd.count} Tankungen`),
+    kpi('Ø Verbrauch', isNum(cons) ? `${num(cons, 1, 1)} L` : '–', 'pro 100 km'),
+    kpi('Kosten / 100 km', isNum(c100) ? eur(c100) : '–', isNum(kmYtd) ? `${num(kmYtd, 0)} km in ${year}` : 'km-Stand erfassen'),
+    kpi('Ø Literpreis 12 M', isNum(last12.avgPrice) ? fuelPrice(last12.avgPrice) : '–', best ? `Bestpreis ${num(best.price, 3)} am ${fmtDate(best.date, { day: '2-digit', month: '2-digit', year: '2-digit' })}` : ''),
+    sv.n
+      ? kpi('Gespart', eur(sv.saved), `ggü. Ø der Umgebung (${sv.n} Tankungen)`, sv.saved >= 0 ? 'down' : 'up')
+      : kpi('Liter 12 M', isNum(last12.liters) ? num(last12.liters, 0) + ' L' : '–', `${last12.count} Tankungen`),
+  ].join('');
+}
+
+function renderInsights() {
+  const entries = store.getEntries();
+  const snaps = store.getSnapshots();
+  const items = [];
+  const add = (ico, html) => items.push(`<li><span class="ico">${ico}</span><span>${html}</span></li>`);
+  const recent = stats.totals(stats.inRange(entries, Date.now() - 120 * DAY));
+
+  const open = stationData?.stations.filter((s) => s.isOpen) || [];
+  if (open.length && isNum(recent.avgPrice)) {
+    const best = open.reduce((a, b) => (b.price < a.price ? b : a));
+    const d = (best.price - recent.avgPrice) * 100;
+    if (d < -1) add('🟢', `<b>Guter Moment zum Tanken:</b> ${esc(displayName(best))} liegt ${num(-d, 1)} ct unter deinem Ø der letzten 4 Monate.`);
+    else if (d > 2) add('🟠', `E10 ist gerade ${num(d, 1)} ct <b>teurer</b> als dein Schnitt. Wenn möglich, später tanken.`);
+    else add('⚪️', `Preise liegen aktuell auf deinem üblichen Niveau (${fuelPrice(best.price)} €).`);
+  }
+
+  const bh = stats.bestHour(snaps);
+  if (bh) add('🕗', `Laut deinen Messungen ist E10 gegen <b>${bh.best.h} Uhr</b> am günstigsten – im Schnitt ${num((bh.worst.d - bh.best.d) * 100, 1)} ct billiger als um ${bh.worst.h} Uhr.`);
+
+  const interval = stats.fillInterval(entries);
+  if (isNum(interval) && entries.length) {
+    const next = new Date(entries[entries.length - 1].date).getTime() + interval * DAY;
+    const days = Math.round((next - Date.now()) / DAY);
+    add('⛽️', days > 0 ? `Nächstes Tanken voraussichtlich in <b>${days} Tag${days === 1 ? '' : 'en'}</b> (alle ~${num(interval, 0)} Tage).` : `Du tankst etwa alle ${num(interval, 0)} Tage – <b>bald wieder fällig</b>.`);
+  }
+
+  const yearLiters = stats.totals(stats.inRange(entries, Date.now() - 365 * DAY)).liters;
+  if (yearLiters > 50) add('💡', `Jeder Cent pro Liter macht bei dir rund <b>${eur(yearLiters / 100)}</b> im Jahr aus. 10 ct Unterschied = ${eur(yearLiters / 10, 0)}.`);
+
+  const seg = stats.consumptionSegments(entries);
+  if (seg.length >= 4) {
+    const lastL = seg[seg.length - 1].l100, a = avg(seg.slice(-8, -1), (s) => s.l100);
+    if (lastL > a * 1.08) add('📈', `Letzte Tankfüllung: <b>${num(lastL, 1)} L/100 km</b> – ${num(((lastL / a) - 1) * 100, 0)} % über deinem Schnitt. Reifendruck prüfen?`);
+    else if (lastL < a * 0.95) add('🌱', `Sparsam gefahren: <b>${num(lastL, 1)} L/100 km</b>, ${num((1 - lastL / a) * 100, 0)} % unter deinem Schnitt.`);
+    const tank = S().tankSize;
+    if (tank) add('🛣️', `Reichweite mit vollem Tank (${tank} L): ca. <b>${num((tank / stats.avgConsumption(entries)) * 100, 0)} km</b>.`);
+  }
+
+  const year = new Date().getFullYear();
+  const yr = stats.inRange(entries, ...stats.yearRange(year));
+  const biz = yr.filter((e) => e.usage !== 'privat');
+  if (biz.length) add('🧾', `${biz.length} beruflich genutzte Tankungen in ${year} – <a href="#tax" data-nav="tax">Steuer-Übersicht ansehen</a>.`);
+  const noReceipt = yr.filter((e) => e.usage !== 'privat' && !e.receiptId).length;
+  if (noReceipt) add('📸', `${noReceipt} berufliche Tankung${noReceipt === 1 ? '' : 'en'} ohne Belegfoto. Für die Steuer lohnt sich der Scan.`);
+
+  if (!entries.length) {
+    add('👋', 'Willkommen! Tippe unten auf <b>+</b> und scanne deinen ersten Tankbeleg – oder lade in den Einstellungen Demo-Daten.');
+    add('🔑', 'Für Live-Preise in deiner Nähe: kostenlosen Tankerkönig-API-Key in den <a href="#settings" data-nav="settings">Einstellungen</a> eintragen.');
+  }
+  $('#insights').innerHTML = items.slice(0, 6).join('') || '<li class="muted">Noch keine Auffälligkeiten.</li>';
+}
+
+/* =========================================================
+   Tankstellen
+   ========================================================= */
+async function loadStations(force = false) {
+  const s = S();
+  $('#stations-refresh').classList.add('spin');
+  try {
+    stationData = await fetchStations({ apiKey: s.apiKey, radius: s.radius, force });
+    stationError = null;
+    const snap = marketSnapshot(stationData.stations);
+    if (snap) { store.addSnapshot(snap); checkAlarm(snap); }
+  } catch (e) {
+    stationError = e;
+  } finally {
+    $('#stations-refresh').classList.remove('spin');
+  }
+  renderNearby();
+  renderStations();
+  renderInsights();
+  updateSuggestions();
+}
+
+function checkAlarm(snap) {
+  const a = S().alarm;
+  if (!isNum(a) || snap.min > a) return;
+  const key = 'tankbuch.alarm.' + new Date().toDateString();
+  if (sessionStorage.getItem(key)) return;
+  sessionStorage.setItem(key, '1');
+  const msg = `Preisalarm: E10 für ${num(snap.min, 3)} € bei ${snap.station}`;
+  toast('🔔 ' + msg, 5000);
+  if ('Notification' in window && Notification.permission === 'granted') {
+    navigator.serviceWorker?.ready.then((reg) => reg.showNotification('Tankbuch', { body: msg, icon: 'icons/icon-192.png', tag: 'alarm' })).catch(() => {});
+  }
+}
+
+function avgTankLiters() {
+  const e = store.getEntries().slice(-6);
+  return e.length ? avg(e, (x) => x.liters) : (S().tankSize || 50) * 0.75;
+}
+
+function consumptionSetting() {
+  return S().consumption || stats.avgConsumption(store.getEntries()) || 7;
+}
+
+function stationCard(st, i, ref, compact) {
+  const delta = ref != null ? (st.price - ref) * 100 : null;
+  const smart = S().sort === 'smart' && !compact;
+  const extra = smart ? ` · Füllung ${eur(effectiveCost(st, avgTankLiters(), consumptionSetting()), 2)} inkl. Weg` : '';
+  return `<div class="station ${i === 0 && st.isOpen ? 'best' : ''}">
+    <div class="rank">${i + 1}</div>
+    <div style="min-width:0">
+      <div class="name">${esc(displayName(st))}${st.isOpen ? '' : '<span class="tag closed">ZU</span>'}</div>
+      <div class="addr">${num(st.dist, 1)} km · ${esc(st.street)}${compact ? '' : ', ' + esc(st.place)}${extra}</div>
+    </div>
+    <div><div class="price">${fuelPrice(st.price)}</div>${delta != null && i > 0 ? `<div class="delta up">+${num(delta, 1)} ct</div>` : ''}</div>
+    ${compact ? '' : `<div class="actions"><a href="${mapsLink(st)}" target="_blank" rel="noopener">Route</a><button data-fill="${st.id}">Hier getankt</button></div>`}
+  </div>`;
+}
+
+function stationProblem() {
+  if (!stationError) return '';
+  if (stationError.code === 'nokey') return `<div class="empty">Für Live-Preise brauchst du einen kostenlosen API-Key von Tankerkönig.<br><button class="btn primary" data-nav="settings">API-Key eintragen</button></div>`;
+  return `<div class="empty">${esc(stationError.message)}<br><button class="btn" data-retry>Erneut versuchen</button></div>`;
+}
+
+function renderNearby() {
+  const el = $('#nearby-list');
+  if (stationError) return (el.innerHTML = stationProblem());
+  if (!stationData) return;
+  const list = sortStations(stationData.stations, 'price', { openOnly: true });
+  if (!list.length) return (el.innerHTML = '<div class="empty">Keine geöffnete Tankstelle im Umkreis.</div>');
+  el.innerHTML = list.slice(0, 3).map((s, i) => stationCard(s, i, list[0].price, true)).join('');
+}
+
+function renderStations() {
+  const s = S();
+  $('#st-radius').value = s.radius;
+  $('#st-sort').value = s.sort;
+  $('#st-open').checked = s.openOnly;
+  const el = $('#stations-list');
+  if (stationError) { el.innerHTML = stationProblem(); $('#stations-meta').textContent = ''; return; }
+  if (!stationData) { el.innerHTML = '<div class="empty">Lade Preise …</div>'; return; }
+  const list = sortStations(stationData.stations, s.sort, { openOnly: s.openOnly, liters: avgTankLiters(), consumption: consumptionSetting() });
+  const cheapest = list.length ? Math.min(...list.map((x) => x.price)) : null;
+  el.innerHTML = list.length ? list.map((st, i) => stationCard(st, i, cheapest, false)).join('') : '<div class="empty">Keine Tankstellen gefunden. Umkreis vergrößern?</div>';
+  const prices = list.map((x) => x.price);
+  $('#stations-meta').textContent = list.length
+    ? `${list.length} Tankstellen · Spanne ${num(Math.min(...prices), 3)}–${num(Math.max(...prices), 3)} € · Stand ${fmtTime(stationData.fetchedAt)}`
+    : '';
+}
+
+$('#stations-refresh').addEventListener('click', () => { haptic(); loadStations(true); });
+$('#st-radius').addEventListener('change', (e) => { store.setSettings({ radius: +e.target.value }, true); loadStations(true); });
+$('#st-sort').addEventListener('change', (e) => { store.setSettings({ sort: e.target.value }, true); renderStations(); });
+$('#st-open').addEventListener('change', (e) => { store.setSettings({ openOnly: e.target.checked }, true); renderStations(); });
+document.addEventListener('click', (e) => {
+  if (e.target.closest('[data-retry]')) loadStations(true);
+  const f = e.target.closest('[data-fill]');
+  if (f) {
+    const st = stationData.stations.find((x) => x.id === f.dataset.fill);
+    openEntry(null, { station: `${displayName(st)} ${st.street}`, price: st.price });
+  }
+});
+
+/* =========================================================
+   Verlauf
+   ========================================================= */
+function yearsOf(entries) {
+  const ys = new Set(entries.map((e) => new Date(e.date).getFullYear()));
+  ys.add(new Date().getFullYear());
+  return [...ys].sort((a, b) => b - a);
+}
+
+function fillYearSelect(sel, withAll) {
+  const cur = sel.value;
+  const ys = yearsOf(store.getEntries());
+  sel.innerHTML = (withAll ? '<option value="all">Alle Jahre</option>' : '') + ys.map((y) => `<option>${y}</option>`).join('');
+  sel.value = cur && [...sel.options].some((o) => o.value === cur) ? cur : String(withAll ? 'all' : ys[0]);
+}
+
+function renderLog() {
+  const sel = $('#log-year');
+  fillYearSelect(sel, true);
+  let entries = store.getEntries();
+  if (sel.value !== 'all') entries = stats.inRange(entries, ...stats.yearRange(+sel.value));
+  const t = stats.totals(entries);
+  const km = stats.kmDriven(entries);
+  $('#log-summary').innerHTML = `
+    <div><span>Kosten</span><b>${eur(t.total, 0)}</b></div>
+    <div><span>Liter</span><b>${num(t.liters, 0)}</b></div>
+    <div><span>Ø €/L</span><b>${num(t.avgPrice, 3)}</b></div>
+    <div><span>Tankungen</span><b>${t.count}</b></div>
+    <div><span>km</span><b>${isNum(km) ? num(km, 0) : '–'}</b></div>
+    <div><span>Ø Verbrauch</span><b>${isNum(stats.avgConsumption(entries, 999)) ? num(stats.avgConsumption(entries, 999), 1) : '–'}</b></div>`;
+
+  const cons = new Map(stats.consumptionSegments(store.getEntries()).map((s) => [s.date, s.l100]));
+  const groups = new Map();
+  [...entries].reverse().forEach((e) => {
+    const k = monthName(e.date);
+    (groups.get(k) || groups.set(k, []).get(k)).push(e);
+  });
+  const all = store.getEntries();
+  $('#log-list').innerHTML = groups.size ? [...groups.entries()].map(([m, list]) => `
+    <div class="month-head"><span>${m}</span><span>${eur(sum(list, (e) => e.total))}</span></div>
+    ${list.map((e) => {
+      const i = all.indexOf(e);
+      const prev = all[i - 1];
+      const d = prev ? (e.price - prev.price) * 100 : null;
+      return `<button class="entry" data-edit="${e.id}">
+        <div class="day"><b>${new Date(e.date).getDate()}</b><span>${new Date(e.date).toLocaleDateString('de-DE', { weekday: 'short' })}</span></div>
+        <div style="min-width:0">
+          <div class="title">${esc(e.station || 'Tankung')}</div>
+          <div class="meta">${num(e.liters)} L · ${num(e.price, 3)} €/L${cons.has(e.date) ? ` · ${num(cons.get(e.date), 1)} L/100` : ''}${e.receiptId ? ' · 🧾' : ''}${e.usage !== 'privat' ? ' · 💼' : ''}${e.demo ? ' · Demo' : ''}</div>
+        </div>
+        <div class="amount">${eur(e.total)}${d != null ? `<small class="${d > 0 ? 'up' : 'down'}">${signed(d, 1)} ct</small>` : ''}</div>
+      </button>`;
+    }).join('')}`).join('') : '<div class="empty">Noch keine Tankungen erfasst.</div>';
+}
+$('#log-year').addEventListener('change', renderLog);
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-edit]');
+  if (b) openEntry(store.getEntry(b.dataset.edit));
+});
+
+/* =========================================================
+   Steuer
+   ========================================================= */
+function taxYearEntries() {
+  return stats.inRange(store.getEntries(), ...stats.yearRange(+$('#tax-year').value));
+}
+
+function renderTax() {
+  fillYearSelect($('#tax-year'), false);
+  const s = S();
+  const r = yearReport(taxYearEntries());
+  $('#tax-summary').innerHTML = `
+    <div><span>Kraftstoff brutto</span><b>${eur(r.gross)}</b></div>
+    <div><span>davon MwSt 19 %</span><b>${eur(r.vat)}</b></div>
+    <div><span>Netto</span><b>${eur(r.net)}</b></div>
+    <div><span>Tankungen · Liter</span><b>${r.count} · ${num(r.liters, 0)}</b></div>
+    <div class="hl"><span>Beruflich brutto</span><b>${eur(r.business)}</b></div>
+    <div class="hl"><span>Vorsteuer beruflich</span><b>${eur(r.businessVat)}</b></div>`;
+  for (const [id, key] of [['#tax-commute-km', 'commuteKm'], ['#tax-workdays', 'workDays'], ['#tax-rate', 'commuteRate']]) {
+    if (document.activeElement !== $(id)) $(id).value = s[key] ?? '';
+  }
+  const a = commuteAllowance(s.commuteKm, s.workDays, s.commuteRate);
+  $('#tax-commute-result').innerHTML = s.commuteKm
+    ? `Entfernungspauschale ${$('#tax-year').value}<b>${eur(a)}</b><span class="muted small">${num(s.commuteKm, 0)} km × ${s.workDays} Tage × ${num(s.commuteRate, 2)} €${a < 1230 ? ' · liegt unter dem Arbeitnehmer-Pauschbetrag (1.230 €)' : ''}</span>`
+    : 'Trag deine einfache Strecke zur Arbeit ein, um die Pauschale zu berechnen.';
+}
+$('#tax-year').addEventListener('change', renderTax);
+for (const [id, key] of [['#tax-commute-km', 'commuteKm'], ['#tax-workdays', 'workDays'], ['#tax-rate', 'commuteRate']]) {
+  $(id).addEventListener('input', (e) => { store.setSettings({ [key]: parseNum(e.target.value) || 0 }, true); renderTax(); });
+}
+$('#export-csv').addEventListener('click', () => { exportCsv(taxYearEntries(), $('#tax-year').value, S()); toast('CSV erstellt'); });
+$('#export-pdf').addEventListener('click', () => printReport(taxYearEntries(), $('#tax-year').value, S()));
+$('#export-receipts').addEventListener('click', async (e) => {
+  e.target.disabled = true;
+  try {
+    const n = await exportReceipts(taxYearEntries(), $('#tax-year').value, S());
+    toast(n ? `${n} Belege gepackt` : 'Keine Belegfotos in diesem Jahr');
+  } catch (err) { toast('ZIP fehlgeschlagen: ' + err.message); }
+  e.target.disabled = false;
+});
+
+/* =========================================================
+   Eintrag erfassen / bearbeiten
+   ========================================================= */
+const dlg = $('#entry-dialog');
+const form = $('#entry-form');
+let editing = null;          // bestehender Eintrag
+let pendingReceipt = null;   // { blob, url } oder 'remove'
+let edits = [];              // Reihenfolge der zuletzt bearbeiteten Felder liters/price/total
+
+function openEntry(entry, prefill = {}) {
+  haptic();
+  editing = entry || null;
+  pendingReceipt = null;
+  edits = [];
+  form.reset();
+  $$('input', form).forEach((i) => i.classList.remove('auto', 'scanned'));
+  const all = store.getEntries();
+  const last = all[all.length - 1];
+  const e = entry || { date: new Date().toISOString(), fuel: S().fuel, full: true, usage: last?.usage === 'beruflich' ? 'beruflich' : 'privat', share: 0, ...prefill };
+  form.date.value = toLocalInput(e.date);
+  form.fuel.value = e.fuel || 'E10';
+  form.liters.value = isNum(e.liters) ? num(e.liters, 2) : '';
+  form.price.value = isNum(e.price) ? num(e.price, 3, 3) : '';
+  form.total.value = isNum(e.total) ? num(e.total, 2) : '';
+  form.odometer.value = isNum(e.odometer) ? e.odometer : '';
+  form.odometer.placeholder = last && isNum(last.odometer) && !entry ? `zuletzt ${num(last.odometer, 0)}` : 'optional';
+  form.station.value = e.station || '';
+  form.full.checked = e.full !== false;
+  form.usage.value = e.usage || 'privat';
+  form.share.value = e.usage === 'beruflich' ? 100 : e.share || 0;
+  form.note.value = e.note || '';
+  if (isNum(e.price)) edits.push('price');
+  $('#entry-title').textContent = entry ? 'Tankung bearbeiten' : 'Tanken erfassen';
+  $('#entry-delete').hidden = !entry;
+  $('#scan-progress').hidden = true;
+  showReceipt(null);
+  if (entry?.receiptId) store.getReceipt(entry.receiptId).then((b) => b && showReceipt(URL.createObjectURL(b)));
+  updateHint();
+  dlg.showModal();
+}
+
+function showReceipt(url) {
+  const box = $('#receipt-preview');
+  box.hidden = !url;
+  if (url) $('img', box).src = url;
+}
+
+/** Aus zwei der drei Werte Liter / Preis / Betrag den dritten berechnen */
+function autoCalc(changed) {
+  edits = [...edits.filter((x) => x !== changed), changed];
+  const v = { liters: parseNum(form.liters.value), price: parseNum(form.price.value), total: parseNum(form.total.value) };
+  const known = edits.filter((k) => isNum(v[k]) && v[k] > 0).slice(-2);
+  if (known.length < 2) return updateHint();
+  const target = ['liters', 'price', 'total'].find((k) => !known.includes(k));
+  let r;
+  if (target === 'total') r = num(v.liters * v.price, 2);
+  if (target === 'liters') r = num(v.total / v.price, 2);
+  if (target === 'price') r = num(v.total / v.liters, 3, 3);
+  form[target].value = r;
+  form[target].classList.add('auto');
+  known.forEach((k) => form[k].classList.remove('auto'));
+  updateHint();
+}
+
+function updateHint() {
+  const l = parseNum(form.liters.value), p = parseNum(form.price.value), odo = parseNum(form.odometer.value);
+  const all = store.getEntries().filter((x) => x.id !== editing?.id && new Date(x.date) < new Date(form.date.value));
+  const prev = [...all].reverse().find((x) => isNum(x.odometer));
+  const parts = [];
+  if (isNum(odo) && prev) {
+    const km = odo - prev.odometer;
+    if (km <= 0) parts.push(`⚠️ km-Stand ist nicht höher als zuletzt (${num(prev.odometer, 0)})`);
+    else {
+      parts.push(`${num(km, 0)} km seit letzter Tankung`);
+      if (form.full.checked && isNum(l) && prev.full) parts.push(`≈ ${num((l / km) * 100, 1)} L/100 km`);
+    }
+  }
+  const ref = stats.totals(stats.inRange(store.getEntries(), Date.now() - 120 * DAY)).avgPrice;
+  if (isNum(p) && isNum(ref)) {
+    const d = (p - ref) * 100;
+    parts.push(`<span class="${d > 0 ? 'up' : 'down'}">${signed(d, 1)} ct ggü. deinem Ø</span>`);
+  }
+  $('#calc-hint').innerHTML = parts.join(' · ');
+}
+
+['liters', 'price', 'total'].forEach((k) => form[k].addEventListener('input', () => { form[k].classList.remove('auto'); autoCalc(k); }));
+['odometer', 'date'].forEach((k) => form[k].addEventListener('input', updateHint));
+form.full.addEventListener('change', updateHint);
+form.usage.addEventListener('change', () => {
+  if (form.usage.value === 'beruflich') form.share.value = 100;
+  if (form.usage.value === 'privat') form.share.value = 0;
+  if (form.usage.value === 'gemischt' && (+form.share.value === 0 || +form.share.value === 100)) form.share.value = 50;
+});
+form.share.addEventListener('input', () => {
+  const v = +form.share.value;
+  form.usage.value = v >= 100 ? 'beruflich' : v <= 0 ? 'privat' : 'gemischt';
+});
+$('[data-close]', form).addEventListener('click', () => dlg.close());
+dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close(); });
+
+async function handleScan(file) {
+  if (!file) return;
+  const prog = $('#scan-progress');
+  const bar = $('i', prog);
+  prog.hidden = false;
+  bar.style.width = '5%';
+  try {
+    const blob = await compressImage(file);
+    pendingReceipt = { blob };
+    showReceipt(URL.createObjectURL(blob));
+    $('span', prog).textContent = 'Beleg wird gelesen … (beim ersten Mal lädt die Texterkennung ~10 MB)';
+    const r = await scanReceipt(file, (p) => (bar.style.width = `${Math.round(p * 100)}%`));
+    const found = [];
+    const set = (name, value) => { form[name].value = value; form[name].classList.remove('auto'); form[name].classList.add('scanned'); found.push(name); };
+    if (r.date) set('date', toLocalInput(r.date));
+    if (isNum(r.liters)) set('liters', num(r.liters, 2));
+    if (isNum(r.price)) set('price', num(r.price, 3, 3));
+    if (isNum(r.total)) set('total', num(r.total, 2));
+    if (r.fuel) form.fuel.value = r.fuel;
+    if (r.station && !form.station.value) set('station', r.station);
+    edits = ['liters', 'price', 'total'].filter((k) => found.includes(k));
+    updateHint();
+    const core = ['liters', 'price', 'total'].filter((k) => found.includes(k)).length;
+    toast(core === 3 ? '✅ Beleg erkannt – bitte kurz prüfen' : core ? 'Teilweise erkannt – bitte ergänzen' : 'Nichts erkannt – Foto gerader & heller aufnehmen');
+    console.debug('[OCR]', r.text);
+  } catch (err) {
+    console.error(err);
+    toast('Scan fehlgeschlagen: ' + (err.message || 'Texterkennung nicht verfügbar (offline?)'));
+  } finally {
+    prog.hidden = true;
+    $('span', prog).textContent = 'Beleg wird gelesen …';
+  }
+}
+$('#scan-camera').addEventListener('change', (e) => { handleScan(e.target.files[0]); e.target.value = ''; });
+$('#scan-file').addEventListener('change', (e) => { handleScan(e.target.files[0]); e.target.value = ''; });
+$('#receipt-remove').addEventListener('click', () => { pendingReceipt = 'remove'; showReceipt(null); });
+$('#receipt-preview img').addEventListener('click', (e) => {
+  const lb = $('#receipt-dialog');
+  $('img', lb).src = e.target.src;
+  lb.showModal();
+});
+
+form.addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const liters = parseNum(form.liters.value), price = parseNum(form.price.value);
+  let total = parseNum(form.total.value);
+  if (!(liters > 0) || !(price > 0)) {
+    toast('Bitte Liter und Preis (oder Betrag) angeben');
+    (liters > 0 ? form.price : form.liters).focus();
+    return;
+  }
+  if (!(total > 0)) total = Math.round(liters * price * 100) / 100;
+  const odo = parseNum(form.odometer.value);
+  const share = Math.max(0, Math.min(100, parseInt(form.share.value, 10) || 0));
+  const entry = {
+    ...(editing || {}),
+    id: editing?.id || uid(),
+    date: new Date(form.date.value || Date.now()).toISOString(),
+    liters, price, total,
+    odometer: isNum(odo) ? Math.round(odo) : null,
+    full: form.full.checked,
+    fuel: form.fuel.value,
+    station: form.station.value.trim(),
+    usage: form.usage.value,
+    share: form.usage.value === 'beruflich' ? 100 : form.usage.value === 'privat' ? 0 : share,
+    note: form.note.value.trim(),
+  };
+  delete entry.demo;
+  if (pendingReceipt === 'remove' && entry.receiptId) { store.deleteReceipt(entry.receiptId); delete entry.receiptId; }
+  if (pendingReceipt?.blob) {
+    if (entry.receiptId) store.deleteReceipt(entry.receiptId);
+    entry.receiptId = 'r_' + entry.id + '_' + Date.now().toString(36);
+    await store.putReceipt(entry.receiptId, pendingReceipt.blob);
+  }
+  store.saveEntry(entry);
+  haptic(20);
+  dlg.close();
+  toast(editing ? 'Gespeichert' : `⛽️ ${eur(total)} erfasst`);
+});
+
+$('#entry-delete').addEventListener('click', () => {
+  if (!editing || !confirm('Diese Tankung wirklich löschen?')) return;
+  store.deleteEntry(editing.id);
+  dlg.close();
+  toast('Gelöscht');
+});
+$('#fab-add').addEventListener('click', () => openEntry(null));
+
+function updateSuggestions() {
+  const names = new Set();
+  if (stationData) sortStations(stationData.stations, 'dist', {}).slice(0, 8).forEach((s) => names.add(`${displayName(s)} ${s.street}`));
+  store.getEntries().slice(-30).reverse().forEach((e) => e.station && names.add(e.station));
+  $('#station-suggestions').innerHTML = [...names].map((n) => `<option value="${esc(n)}">`).join('');
+}
+
+/* =========================================================
+   Einstellungen
+   ========================================================= */
+const SETTINGS_FIELDS = [
+  ['#set-vehicle', 'vehicle', 'text'], ['#set-plate', 'plate', 'text'], ['#set-tank', 'tankSize', 'num'], ['#set-fuel', 'fuel', 'text'],
+  ['#set-apikey', 'apiKey', 'text'], ['#set-alarm', 'alarm', 'num'], ['#set-cons', 'consumption', 'num'],
+  ['#set-sheets', 'sheetsUrl', 'text'], ['#set-secret', 'sheetsSecret', 'text'], ['#set-autosync', 'autoSync', 'bool'],
+];
+
+function fillSettings() {
+  const s = S();
+  for (const [sel, key, type] of SETTINGS_FIELDS) {
+    if (type === 'bool') $(sel).checked = !!s[key];
+    else $(sel).value = s[key] ?? '';
+  }
+}
+
+for (const [sel, key, type] of SETTINGS_FIELDS) {
+  $(sel).addEventListener('change', (e) => {
+    const v = type === 'bool' ? e.target.checked : type === 'num' ? (isNum(parseNum(e.target.value)) ? parseNum(e.target.value) : null) : e.target.value.trim();
+    store.setSettings({ [key]: v });
+    if (key === 'apiKey') { stationError = null; loadStations(true); }
+    if (key === 'alarm' && isNum(v) && 'Notification' in window && Notification.permission === 'default') Notification.requestPermission();
+    toast('Gespeichert');
+  });
+}
+
+$('#sheets-help').addEventListener('click', async () => {
+  const g = $('#sheets-guide');
+  g.hidden = !g.hidden;
+  if (!g.hidden && $('#script-code').textContent === 'Lädt …') {
+    try {
+      let code = await (await fetch('google-apps-script/Code.gs')).text();
+      if (S().sheetsSecret) code = code.replace('HIER-DEINEN-SCHLUESSEL-EINTRAGEN', S().sheetsSecret);
+      $('#script-code').textContent = code;
+    } catch { $('#script-code').textContent = 'Konnte Script nicht laden – siehe google-apps-script/Code.gs im Repository.'; }
+  }
+});
+$('#copy-script').addEventListener('click', async () => {
+  await navigator.clipboard.writeText($('#script-code').textContent);
+  toast('Code kopiert');
+});
+
+let syncTimer;
+async function doSync(manual) {
+  const s = S();
+  const status = $('#sync-status');
+  status.textContent = 'Übertrage zu Google Sheets …';
+  status.className = 'brand-sub';
+  try {
+    const r = await syncToSheets(store.getEntries(), s);
+    store.setSettings({ lastSync: Date.now() }, true);
+    if (manual) toast(r.unconfirmed ? 'Gesendet – bitte im Sheet prüfen' : `✅ ${r.rows} Zeilen in Google Sheets`);
+  } catch (e) {
+    if (manual) toast('Sheets: ' + e.message, 4000);
+    status.textContent = 'Sheets-Fehler: ' + e.message;
+    status.className = 'brand-sub err';
+    return;
+  }
+  renderSyncStatus();
+}
+$('#sheets-sync').addEventListener('click', () => doSync(true));
+
+function renderSyncStatus() {
+  const s = S();
+  const el = $('#sync-status');
+  if (s.sheetsUrl && s.lastSync) { el.textContent = `Sheets synchron · ${fmtDate(s.lastSync, { day: '2-digit', month: '2-digit' })} ${fmtTime(s.lastSync)}`; el.className = 'brand-sub ok'; }
+  else { el.textContent = s.plate ? s.plate : `${store.getEntries().length} Tankungen`; el.className = 'brand-sub'; }
+}
+
+$('#backup-export').addEventListener('click', () => {
+  download(`tankbuch-backup-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(store.exportData(), null, 1), 'application/json');
+});
+$('#backup-import').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  try {
+    const data = JSON.parse(await file.text());
+    if (!Array.isArray(data.entries)) throw new Error('Keine Tankbuch-Datei');
+    if (!confirm(`${data.entries.length} Tankungen importieren? Aktuelle Daten werden ersetzt.`)) return;
+    store.replaceAll(data);
+    toast('Backup importiert');
+  } catch (err) { toast('Import fehlgeschlagen: ' + err.message); }
+  e.target.value = '';
+});
+$('#demo-load').addEventListener('click', () => {
+  store.removeWhere((x) => x.demo);
+  store.mergeData(demoData());
+  toast('Demo-Daten geladen');
+  nav('home');
+});
+$('#demo-clear').addEventListener('click', () => { store.removeWhere((x) => x.demo); toast('Demo-Daten entfernt'); });
+$('#reset-all').addEventListener('click', async () => {
+  if (!confirm('Wirklich ALLE Tankungen, Belege und Einstellungen löschen?')) return;
+  store.replaceAll({ entries: [], snapshots: [] });
+  await store.clearReceipts();
+  toast('Alles gelöscht');
+});
+
+/* =========================================================
+   Gesamt-Rendering & Start
+   ========================================================= */
+function renderAll() {
+  $('#vehicle-name').textContent = S().vehicle || 'Mein Auto';
+  renderSyncStatus();
+  renderChartBlock();
+  renderKpis();
+  renderInsights();
+  renderNearby();
+  if ($('#view-log').classList.contains('active')) renderLog();
+  if ($('#view-tax').classList.contains('active')) renderTax();
+}
+
+store.onChange((kind) => {
+  renderAll();
+  if (kind === 'entries' && S().autoSync && S().sheetsUrl) {
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(() => doSync(false), 1500);
+  }
+});
+
+function start() {
+  renderAll();
+  const hash = location.hash.slice(1);
+  if (['stations', 'log', 'tax', 'settings'].includes(hash)) nav(hash);
+  if (new URLSearchParams(location.search).has('add')) openEntry(null);
+  loadStations();
+  updateSuggestions();
+  // Beim Zurückkehren in die App frische Preise holen
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') loadStations(); });
+}
+
+if (window.LightweightCharts) start();
+else window.addEventListener('load', start, { once: true });
+
+if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}

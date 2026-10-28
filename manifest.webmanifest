@@ -1,0 +1,22 @@
+{
+  "name": "Tankbuch – Spritpreise & Fahrtkosten",
+  "short_name": "Tankbuch",
+  "description": "Belege scannen, Tankpreise wie eine Aktie verfolgen, günstigstes E10 in der Nähe.",
+  "lang": "de",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b0f14",
+  "theme_color": "#0b0f14",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ],
+  "shortcuts": [
+    { "name": "Tanken erfassen", "short_name": "Erfassen", "url": "./?add=1" },
+    { "name": "Günstig tanken", "short_name": "In der Nähe", "url": "./#stations" }
+  ]
+}
