@@ -172,20 +172,22 @@
       </div>
 
       <div class="card">
-        <div class="card-head"><h2>Google Sheets</h2></div>
+        <div class="card-head"><h2>Google Sheets & Sicherung</h2></div>
         <label class="full">Web-App-URL<input id="set-sheets" placeholder="https://script.google.com/macros/s/…/exec" spellcheck="false"></label>
         <label class="full">Geheimer Schlüssel<input id="set-secret" placeholder="frei wählbar, muss im Script gleich sein" spellcheck="false"></label>
-        <label class="check"><input type="checkbox" id="set-autosync"> Nach jeder Änderung automatisch übertragen</label>
+        <label class="check"><input type="checkbox" id="set-autosync"> Nach jeder Änderung automatisch sichern</label>
         <div class="btn-row">
-          <button class="btn primary" id="sheets-sync">Jetzt übertragen</button>
-          <button class="btn" id="sheets-help">Einrichtung (2 Min.)</button>
+          <button class="btn primary" id="sheets-sync">Jetzt sichern</button>
+          <button class="btn" id="sheets-restore">Wiederherstellen</button>
         </div>
+        <p class="muted small">Sichert Tankbuch, Einstellungen und Belegfotos (Ordner „Tankbuch Belege“ in deinem Google Drive). Auf einem neuen Handy holt „Wiederherstellen“ alles zurück.</p>
+        <button class="btn full" id="sheets-help">Einrichtung (3 Min.)</button>
         <div id="sheets-guide" hidden>
           <ol class="steps">
             <li>Neues Google Sheet anlegen → <b>Erweiterungen → Apps Script</b>.</li>
             <li>Den Code unten komplett einfügen, oben den <code>SECRET</code> auf deinen Schlüssel setzen, speichern.</li>
-            <li><b>Bereitstellen → Neue Bereitstellung → Web-App</b>. Ausführen als: <i>Ich</i>. Zugriff: <i>Jeder</i>.</li>
-            <li>Die angezeigte URL (endet auf <code>/exec</code>) hier einfügen und „Jetzt übertragen“ tippen.</li>
+            <li><b>Bereitstellen → Neue Bereitstellung → Web-App</b>. Ausführen als: <i>Ich</i>. Zugriff: <i>Jeder</i>. Den Zugriff auf Tabellen und Drive erlauben (für die Belegfotos).</li>
+            <li>Die angezeigte URL (endet auf <code>/exec</code>) hier einfügen und „Jetzt sichern“ tippen.</li>
           </ol>
           <div class="code-wrap">
             <button class="btn small" id="copy-script">Code kopieren</button>

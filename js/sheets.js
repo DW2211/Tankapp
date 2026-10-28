@@ -37,11 +37,14 @@ export function toRows(entries) {
 
 const round2 = (v) => Math.round(v * 100) / 100;
 
-export async function syncToSheets(entries, settings) {
+function checkUrl(settings) {
   if (!settings.sheetsUrl) throw new Error('Bitte zuerst die Web-App-URL eintragen.');
   if (!/^https:\/\/script\.google(usercontent)?\.com\//.test(settings.sheetsUrl)) throw new Error('Das sieht nicht nach einer Apps-Script-URL aus.');
-  const body = JSON.stringify({ secret: settings.sheetsSecret, action: 'replaceAll', vehicle: settings.vehicle, rows: toRows(entries) });
-  // text/plain = "simple request" → kein CORS-Preflight, den Apps Script nicht beantwortet
+}
+
+/** POST an das Script. text/plain = "simple request" → kein CORS-Preflight, den Apps Script nicht beantwortet */
+async function post(settings, payload) {
+  const body = JSON.stringify({ secret: settings.sheetsSecret, ...payload });
   try {
     const res = await fetch(settings.sheetsUrl, { method: 'POST', body, headers: { 'Content-Type': 'text/plain;charset=utf-8' }, redirect: 'follow' });
     const json = await res.json();
@@ -53,4 +56,63 @@ export async function syncToSheets(entries, settings) {
     await fetch(settings.sheetsUrl, { method: 'POST', body, mode: 'no-cors', headers: { 'Content-Type': 'text/plain;charset=utf-8' } });
     return { ok: true, unconfirmed: true };
   }
+}
+
+async function get(settings, params) {
+  const url = `${settings.sheetsUrl}?${new URLSearchParams({ secret: settings.sheetsSecret, ...params })}`;
+  const res = await fetch(url, { redirect: 'follow' });
+  const json = await res.json().catch(() => { throw new Error('Keine gültige Antwort – ist das Script als Web-App für „Jeder“ bereitgestellt?'); });
+  if (!json.ok) throw new Error(json.error || 'Unbekannter Fehler im Script');
+  return json;
+}
+
+/** Was in die Sicherung gehört: alles außer dem Sheets-Zugang selbst */
+function backupPayload(data) {
+  const { sheetsUrl, sheetsSecret, lastSync, ...settings } = data.settings;
+  return { version: 1, at: new Date().toISOString(), entries: data.entries, snapshots: data.snapshots.slice(-1500), settings };
+}
+
+export async function syncToSheets(entries, settings, fullData, { force = false } = {}) {
+  checkUrl(settings);
+  return post(settings, { action: 'replaceAll', vehicle: settings.vehicle, rows: toRows(entries), backup: fullData ? backupPayload(fullData) : undefined, force });
+}
+
+const UPLOADED = 'tankbuch.uploadedReceipts';
+const uploaded = () => new Set(JSON.parse(localStorage.getItem(UPLOADED) || '[]'));
+export const markUploaded = (ids) => localStorage.setItem(UPLOADED, JSON.stringify([...new Set([...uploaded(), ...ids])]));
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).split(',')[1]);
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(blob);
+  });
+}
+
+/** Lädt alle Belegfotos hoch, die noch nicht in Google Drive liegen */
+export async function uploadReceipts(entries, settings, getReceipt) {
+  const done = uploaded();
+  let n = 0;
+  for (const e of entries) {
+    if (!e.receiptId || done.has(e.receiptId)) continue;
+    const blob = await getReceipt(e.receiptId);
+    if (!blob) continue;
+    const label = `${e.date.slice(0, 10)} · ${e.station || 'Tankung'} · ${e.total} €`;
+    await post(settings, { action: 'receipt', id: e.receiptId, label, data: await blobToBase64(blob) });
+    markUploaded([e.receiptId]);
+    n++;
+  }
+  return n;
+}
+
+export async function fetchBackup(settings) {
+  checkUrl(settings);
+  return get(settings, { action: 'backup' });
+}
+
+export async function fetchReceipt(settings, id) {
+  const r = await get(settings, { action: 'receipt', id });
+  const bytes = Uint8Array.from(atob(r.data), (c) => c.charCodeAt(0));
+  return new Blob([bytes], { type: 'image/jpeg' });
 }

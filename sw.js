@@ -1,5 +1,5 @@
 // Offline-Fähigkeit: App-Dateien aus dem Cache, Live-Preise & Google immer frisch aus dem Netz.
-const VERSION = 'tankbuch-v1';
+const VERSION = 'tankbuch-v2';
 const SHELL = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest',
   'js/app.js', 'js/util.js', 'js/store.js', 'js/charts.js', 'js/stats.js', 'js/stations.js', 'js/ocr.js', 'js/sheets.js', 'js/tax.js', 'js/demo.js',

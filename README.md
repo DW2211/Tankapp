@@ -15,6 +15,7 @@ Eine installierbare Web-App (PWA). Sie läuft auf iPhone und Android wie eine no
 | 🧮 **Automatisch rechnen** | Zwei von drei Werten (Liter, €/L, Betrag) eingeben, der dritte wird berechnet. Verbrauch (Voll-zu-Voll-Methode), Kosten/100 km, Reichweite. |
 | 🧾 **Steuer** | Jahresübersicht mit MwSt.-Anteil, beruflicher Anteil je Tankung (privat / beruflich / gemischt in %), Vorsteuer, Pendlerpauschale (0,38 €/km ab km 1, ab 2026). Export als **CSV** (Excel / Steuerberater), **PDF-Jahresbericht** und **ZIP aller Belegfotos**. |
 | 📊 **Google Sheets** | Komplette Liste mit einem Tipp oder automatisch nach jeder Änderung. Zusätzlich ein Blatt „Monate“ mit Diagramm. |
+| 💾 **Automatische Sicherung** | Mit Google verbunden: bei jeder Änderung Komplettsicherung im (versteckten) Blatt „Backup“ und alle Belegfotos im Drive-Ordner „Tankbuch Belege“. Neues Handy → Einrichtungs-Link antippen → alles ist wieder da. Eine leere App überschreibt nie eine gefüllte Sicherung. Ohne Google: Die App bittet das Handy, die Daten dauerhaft zu behalten, und erinnert alle 30 Tage an ein Backup. |
 | 💡 **Insights** | „Guter Moment zum Tanken“, günstigste Uhrzeit laut deinen eigenen Messungen, nächstes Tanken in X Tagen, was 1 ct/L dich im Jahr kostet, Verbrauchsauffälligkeiten, wie viel du ggü. dem Schnitt der Umgebung gespart hast. |
 | 🌗 Extras | Hell/Dunkel automatisch, offline nutzbar, Backup als JSON, Demo-Daten zum Ausprobieren, Schnellaktionen am App-Icon. |
 

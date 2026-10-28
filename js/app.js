@@ -3,7 +3,7 @@ import * as store from './store.js';
 import { renderChart, hoverDate } from './charts.js';
 import { fetchStations, marketSnapshot, sortStations, displayName, mapsLink, effectiveCost } from './stations.js';
 import { scanReceipt, compressImage } from './ocr.js';
-import { syncToSheets } from './sheets.js';
+import { syncToSheets, uploadReceipts, fetchBackup, fetchReceipt, markUploaded } from './sheets.js';
 import { yearReport, commuteAllowance, exportCsv, printReport, exportReceipts } from './tax.js';
 import * as stats from './stats.js';
 import { demoData } from './demo.js';
@@ -151,6 +151,11 @@ function renderInsights() {
   if (biz.length) add('🧾', `${biz.length} beruflich genutzte Tankungen in ${year} – <a href="#tax" data-nav="tax">Steuer-Übersicht ansehen</a>.`);
   const noReceipt = yr.filter((e) => e.usage !== 'privat' && !e.receiptId).length;
   if (noReceipt) add('📸', `${noReceipt} berufliche Tankung${noReceipt === 1 ? '' : 'en'} ohne Belegfoto. Für die Steuer lohnt sich der Scan.`);
+
+  const s = S();
+  if (entries.filter((e) => !e.demo).length >= 3 && !s.sheetsUrl && (!s.lastExport || Date.now() - s.lastExport > 30 * DAY)) {
+    items.unshift(`<li><span class="ico">💾</span><span><b>Deine Daten sind nur auf diesem Handy.</b> ${s.lastExport ? `Letztes Backup vor ${Math.round((Date.now() - s.lastExport) / DAY)} Tagen.` : 'Noch kein Backup.'} <button class="link" data-backup-now>Jetzt sichern</button> oder <a href="#settings" data-nav="settings">Google-Sicherung einrichten</a>.</span></li>`);
+  }
 
   if (!entries.length) {
     add('👋', 'Willkommen! Tippe unten auf <b>+</b> und scanne deinen ersten Tankbeleg – oder lade in den Einstellungen Demo-Daten.');
@@ -605,13 +610,20 @@ $('#copy-script').addEventListener('click', async () => {
 let syncTimer;
 async function doSync(manual) {
   const s = S();
+  if (!store.getEntries().length) {
+    if (manual) toast('Noch nichts zu sichern – für ein neues Handy „Wiederherstellen“ tippen', 4000);
+    return;
+  }
   const status = $('#sync-status');
   status.textContent = 'Übertrage zu Google Sheets …';
   status.className = 'brand-sub';
   try {
-    const r = await syncToSheets(store.getEntries(), s);
+    const r = await syncToSheets(store.getEntries(), s, store.exportData());
     store.setSettings({ lastSync: Date.now() }, true);
-    if (manual) toast(r.unconfirmed ? 'Gesendet – bitte im Sheet prüfen' : `✅ ${r.rows} Zeilen in Google Sheets`);
+    if (manual) toast(r.unconfirmed ? 'Gesendet – bitte im Sheet prüfen' : `✅ ${r.rows} Zeilen gesichert`);
+    status.textContent = 'Sichere Belegfotos …';
+    const n = await uploadReceipts(store.getEntries(), s, store.getReceipt);
+    if (manual && n) toast(`📸 ${n} Beleg${n === 1 ? '' : 'e'} in Google Drive gesichert`);
   } catch (e) {
     if (manual) toast('Sheets: ' + e.message, 4000);
     status.textContent = 'Sheets-Fehler: ' + e.message;
@@ -622,15 +634,56 @@ async function doSync(manual) {
 }
 $('#sheets-sync').addEventListener('click', () => doSync(true));
 
+/** Holt Tankbuch, Einstellungen und Belegfotos aus der Google-Sicherung zurück */
+async function restoreFromGoogle({ ask = true } = {}) {
+  const s = S();
+  const status = $('#sync-status');
+  status.textContent = 'Suche Sicherung in Google …';
+  status.className = 'brand-sub';
+  let backup;
+  try {
+    backup = await fetchBackup(s);
+  } catch (e) {
+    renderSyncStatus();
+    if (ask) toast('Wiederherstellen: ' + e.message, 4000);
+    return false;
+  }
+  const d = backup.data;
+  if (!Array.isArray(d.entries)) { renderSyncStatus(); toast('Sicherung ist leer'); return false; }
+  const local = store.getEntries().length;
+  if (ask && !confirm(`Sicherung vom ${fmtDate(backup.at)} ${fmtTime(backup.at)} mit ${d.entries.length} Tankungen laden?${local ? `\n\nDie ${local} Tankungen auf diesem Gerät werden dabei ersetzt.` : ''}`)) { renderSyncStatus(); return false; }
+  // Sheets-Zugang des Geräts behalten, Rest aus der Sicherung
+  const keep = { sheetsUrl: s.sheetsUrl, sheetsSecret: s.sheetsSecret, autoSync: s.autoSync, apiKey: s.apiKey || d.settings?.apiKey || '' };
+  const receiptIds = d.entries.map((e) => e.receiptId).filter(Boolean);
+  markUploaded(receiptIds); // liegen ja schon in Drive
+  restoring = true;
+  store.replaceAll({ entries: d.entries, snapshots: d.snapshots || [], settings: { ...d.settings, ...keep, lastSync: Date.now() } });
+  restoring = false;
+  toast(`✅ ${d.entries.length} Tankungen wiederhergestellt`, 4000);
+  let n = 0;
+  for (const id of receiptIds) {
+    if (await store.getReceipt(id)) continue;
+    status.textContent = `Lade Belegfotos … ${++n}/${receiptIds.length}`;
+    try { await store.putReceipt(id, await fetchReceipt(S(), id)); } catch (e) { console.warn('Beleg', id, e); }
+  }
+  renderAll();
+  return true;
+}
+let restoring = false;
+$('#sheets-restore').addEventListener('click', () => restoreFromGoogle());
+
 function renderSyncStatus() {
   const s = S();
   const el = $('#sync-status');
-  if (s.sheetsUrl && s.lastSync) { el.textContent = `Sheets synchron · ${fmtDate(s.lastSync, { day: '2-digit', month: '2-digit' })} ${fmtTime(s.lastSync)}`; el.className = 'brand-sub ok'; }
+  if (s.sheetsUrl && s.lastSync) { el.textContent = `Gesichert · ${fmtDate(s.lastSync, { day: '2-digit', month: '2-digit' })} ${fmtTime(s.lastSync)}`; el.className = 'brand-sub ok'; }
   else { el.textContent = s.plate ? s.plate : `${store.getEntries().length} Tankungen`; el.className = 'brand-sub'; }
 }
 
+document.addEventListener('click', (e) => { if (e.target.closest('[data-backup-now]')) $('#backup-export').click(); });
 $('#backup-export').addEventListener('click', () => {
   download(`tankbuch-backup-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(store.exportData(), null, 1), 'application/json');
+  store.setSettings({ lastExport: Date.now() }, true);
+  renderInsights();
 });
 $('#backup-import').addEventListener('change', async (e) => {
   const file = e.target.files[0];
@@ -674,7 +727,8 @@ function renderAll() {
 
 store.onChange((kind) => {
   renderAll();
-  if (kind === 'entries' && S().autoSync && S().sheetsUrl) {
+  // nie automatisch ein leeres Tankbuch über die Sicherung schreiben
+  if (kind === 'entries' && S().autoSync && S().sheetsUrl && !restoring && store.getEntries().length) {
     clearTimeout(syncTimer);
     syncTimer = setTimeout(() => doSync(false), 1500);
   }
@@ -693,11 +747,17 @@ function applySetupLink() {
   if (!Object.keys(patch).length) return false;
   store.setSettings(patch);
   toast('✅ Einrichtung übernommen', 4000);
-  if (patch.sheetsUrl) doSync(false);
+  if (patch.sheetsUrl) {
+    // Neues Handy? Dann zuerst die Sicherung holen statt das leere Tankbuch hochzuladen
+    if (!store.getEntries().length) restoreFromGoogle({ ask: false });
+    else doSync(false);
+  }
   return true;
 }
 
 function start() {
+  // Bittet den Browser, die Daten nie automatisch aufzuräumen (v. a. Safari löscht sonst nach Wochen ohne Nutzung)
+  navigator.storage?.persist?.().then((ok) => store.setSettings({ persisted: ok }, true)).catch(() => {});
   applySetupLink();
   renderAll();
   const hash = location.hash.slice(1);
