@@ -7,6 +7,7 @@ import { syncToSheets, uploadReceipts, fetchBackup, fetchReceipt, markUploaded }
 import { yearReport, commuteAllowance, exportCsv, printReport, exportReceipts } from './tax.js';
 import * as stats from './stats.js';
 import { demoData } from './demo.js';
+import { brandBadge, sparkline, ICONS, countUp, greeting } from './ui.js';
 
 const S = store.getSettings;
 let stationData = null;   // { stations, pos, fetchedAt }
@@ -25,21 +26,29 @@ function nav(view) {
   if (view === 'tax') renderTax();
   if (view === 'settings') fillSettings();
   if (view === 'home') requestAnimationFrame(renderChartBlock);
+  $('#navbar-title').textContent = $(`#view-${view}`).dataset.title;
+  onScroll();
   history.replaceState(null, '', view === 'home' ? location.pathname : `#${view}`);
 }
 document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-nav]');
-  if (b) { haptic(); nav(b.dataset.nav); }
+  if (b) { e.preventDefault(); haptic(); nav(b.dataset.nav); }
 });
+
+// Kompakte Leiste einblenden, sobald der große Titel weggescrollt ist (wie iOS)
+function onScroll() { $('#navbar').classList.toggle('scrolled', window.scrollY > 44); }
+addEventListener('scroll', onScroll, { passive: true });
 
 /* =========================================================
    Home: Ticker-Chart
    ========================================================= */
 function renderChartBlock() {
   const s = S();
-  $$('#chart-mode button').forEach((b) => b.classList.toggle('on', b.dataset.mode === s.chartMode));
+  const modes = $$('#chart-mode button');
+  modes.forEach((b) => b.classList.toggle('on', b.dataset.mode === s.chartMode));
+  $('#chart-mode .seg-thumb').style.transform = `translateX(${Math.max(0, modes.findIndex((b) => b.dataset.mode === s.chartMode)) * 100}%)`;
   $$('#chart-range button').forEach((b) => b.classList.toggle('on', b.dataset.range === s.chartRange));
-  $('#chart-style').textContent = s.chartStyle === 'candle' ? 'Kerzen' : 'Linie';
+  $('#chart-style span').textContent = s.chartStyle === 'candle' ? 'Kerzen' : 'Linie';
   $('#chart-style').hidden = s.chartMode !== 'price';
   chartHead = renderChart({ entries: store.getEntries(), snapshots: store.getSnapshots(), mode: s.chartMode, range: s.chartRange, style: s.chartStyle }, onHover);
   setTicker(chartHead);
@@ -50,7 +59,9 @@ function setTicker(h) {
   $('#ticker-label').textContent = h.label;
   $('#ticker-price').innerHTML = h.price;
   const c = $('#ticker-change');
-  c.innerHTML = h.change;
+  // Pfeil zusätzlich zur Farbe, damit „gestiegen/gefallen“ nie nur über Rot/Grün erkennbar ist
+  const arrow = h.cls === 'up' ? '<span class="arrow">▲</span>' : h.cls === 'down' ? '<span class="arrow">▼</span>' : '';
+  c.innerHTML = arrow + h.change;
   c.className = `ticker-change ${h.cls}`;
 }
 
@@ -94,16 +105,20 @@ function renderKpis() {
   const kmYtd = stats.kmDriven(stats.inRange(entries, ...stats.yearRange(year)));
 
   const delta = thisMonth.total - lastMonth.total;
-  const kpi = (label, value, sub = '', cls = '') => `<div class="kpi"><div class="label">${label}</div><div class="value ${cls}">${value}</div><div class="sub">${sub}</div></div>`;
+  // Monatssummen der letzten 12 Monate für die Sparklines
+  const months = Array.from({ length: 12 }, (_, i) => stats.totals(stats.inRange(entries, ...stats.monthRange(i - 11))).total);
+  const priceSeries = entries.slice(-12).map((e) => e.price);
+  const consSeries = stats.consumptionSegments(entries).slice(-10).map((x) => x.l100);
+  const kpi = ({ icon, color, label, value, sub = '', cls = '', spark = '' }) => `<div class="kpi">${spark}<div class="k-icon" style="--c:${color}">${ICONS[icon]}</div><div class="label">${label}</div><div class="value num ${cls}">${value}</div><div class="sub">${sub}</div></div>`;
   $('#kpis').innerHTML = [
-    kpi('Diesen Monat', eur(thisMonth.total), lastMonth.count ? `<span class="${delta > 0 ? 'up' : 'down'}">${signed(delta, 0)} €</span> ggü. Vormonat` : `${thisMonth.count} Tankungen`),
-    kpi(`Seit 1.1.${year}`, eur(ytd.total, 0), ytd.count && dayOfYear > 20 ? `Prognose ${eur((ytd.total / dayOfYear) * 365, 0)}` : `${ytd.count} Tankungen`),
-    kpi('Ø Verbrauch', isNum(cons) ? `${num(cons, 1, 1)} L` : '–', 'pro 100 km'),
-    kpi('Kosten / 100 km', isNum(c100) ? eur(c100) : '–', isNum(kmYtd) ? `${num(kmYtd, 0)} km in ${year}` : 'km-Stand erfassen'),
-    kpi('Ø Literpreis 12 M', isNum(last12.avgPrice) ? fuelPrice(last12.avgPrice) : '–', best ? `Bestpreis ${num(best.price, 3)} am ${fmtDate(best.date, { day: '2-digit', month: '2-digit', year: '2-digit' })}` : ''),
+    kpi({ icon: 'wallet', color: '#0a84ff', label: 'Diesen Monat', value: eur(thisMonth.total), sub: lastMonth.count ? `<span class="${delta > 0 ? 'up' : 'down'}">${delta > 0 ? '▲' : '▼'} ${signed(delta, 0)} €</span> ggü. Vormonat` : `${thisMonth.count} Tankungen`, spark: sparkline(months, '#0a84ff') }),
+    kpi({ icon: 'calendar', color: '#5e5ce6', label: `Seit 1.1.${year}`, value: eur(ytd.total, 0), sub: ytd.count && dayOfYear > 20 ? `Prognose ${eur((ytd.total / dayOfYear) * 365, 0)}` : `${ytd.count} Tankungen` }),
+    kpi({ icon: 'drop', color: '#64d2ff', label: 'Ø Verbrauch', value: isNum(cons) ? `${num(cons, 1, 1)} L` : '–', sub: 'pro 100 km', spark: sparkline(consSeries, '#64d2ff') }),
+    kpi({ icon: 'road', color: '#ff9f0a', label: 'Kosten / 100 km', value: isNum(c100) ? eur(c100) : '–', sub: isNum(kmYtd) ? `${num(kmYtd, 0)} km in ${year}` : 'km-Stand erfassen' }),
+    kpi({ icon: 'tag', color: '#bf5af2', label: 'Ø Preis 12 Mon.', value: isNum(last12.avgPrice) ? fuelPrice(last12.avgPrice) : '–', sub: best ? `Bestpreis ${num(best.price, 3)} €` : '', spark: sparkline(priceSeries, '#bf5af2') }),
     sv.n
-      ? kpi('Gespart', eur(sv.saved), `ggü. Ø der Umgebung (${sv.n} Tankungen)`, sv.saved >= 0 ? 'down' : 'up')
-      : kpi('Liter 12 M', isNum(last12.liters) ? num(last12.liters, 0) + ' L' : '–', `${last12.count} Tankungen`),
+      ? kpi({ icon: 'piggy', color: '#30d158', label: 'Gespart', value: eur(sv.saved), sub: `ggü. Ø Umgebung · ${sv.n}×`, cls: sv.saved >= 0 ? 'down' : 'up' })
+      : kpi({ icon: 'drop', color: '#30d158', label: 'Liter 12 Mon.', value: isNum(last12.liters) ? num(last12.liters, 0) + ' L' : '–', sub: `${last12.count} Tankungen` }),
   ].join('');
 }
 
@@ -161,7 +176,7 @@ function renderInsights() {
     add('👋', 'Willkommen! Tippe unten auf <b>+</b> und scanne deinen ersten Tankbeleg – oder lade in den Einstellungen Demo-Daten.');
     add('🔑', 'Für Live-Preise in deiner Nähe: kostenlosen Tankerkönig-API-Key in den <a href="#settings" data-nav="settings">Einstellungen</a> eintragen.');
   }
-  $('#insights').innerHTML = items.slice(0, 6).join('') || '<li class="muted">Noch keine Auffälligkeiten.</li>';
+  $('#insights').innerHTML = items.slice(0, 6).join('') || '<li class="empty-li">Noch keine Auffälligkeiten.</li>';
 }
 
 /* =========================================================
@@ -212,30 +227,68 @@ function stationCard(st, i, ref, compact) {
   const delta = ref != null ? (st.price - ref) * 100 : null;
   const smart = S().sort === 'smart' && !compact;
   const extra = smart ? ` · Füllung ${eur(effectiveCost(st, avgTankLiters(), consumptionSetting()), 2)} inkl. Weg` : '';
-  return `<div class="station ${i === 0 && st.isOpen ? 'best' : ''}">
-    <div class="rank">${i + 1}</div>
+  const isBest = delta != null && delta < 0.05 && st.isOpen;
+  return `<div class="station ${isBest && !compact ? 'best' : ''}">
+    ${brandBadge(st.brand || st.name)}
     <div style="min-width:0">
-      <div class="name">${esc(displayName(st))}${st.isOpen ? '' : '<span class="tag closed">ZU</span>'}</div>
+      <div class="name">${esc(displayName(st))}${st.isOpen ? '' : '<span class="tag closed">GESCHLOSSEN</span>'}</div>
       <div class="addr">${num(st.dist, 1)} km · ${esc(st.street)}${compact ? '' : ', ' + esc(st.place)}${extra}</div>
     </div>
-    <div><div class="price">${fuelPrice(st.price)}</div>${delta != null && i > 0 ? `<div class="delta up">+${num(delta, 1)} ct</div>` : ''}</div>
-    ${compact ? '' : `<div class="actions"><a href="${mapsLink(st)}" target="_blank" rel="noopener">Route</a><button data-fill="${st.id}">Hier getankt</button></div>`}
+    <div><div class="price num">${fuelPrice(st.price)}</div>${isBest ? '<div class="delta best-tag">★ Bestpreis</div>' : delta != null ? `<div class="delta up">▲ ${num(delta, 1)} ct</div>` : ''}</div>
+    ${compact ? '' : `<div class="actions"><a href="${mapsLink(st)}" target="_blank" rel="noopener">${ICONS.route}Route</a><button data-fill="${st.id}">${ICONS.plus}Hier getankt</button></div>`}
   </div>`;
 }
 
 function stationProblem() {
   if (!stationError) return '';
-  if (stationError.code === 'nokey') return `<div class="empty">Für Live-Preise brauchst du einen kostenlosen API-Key von Tankerkönig.<br><button class="btn primary" data-nav="settings">API-Key eintragen</button></div>`;
+  if (stationError.code === 'nokey') return `<div class="empty">Für Live-Preise brauchst du einen kostenlosen API-Key von Tankerkönig.<br><button class="btn primary" data-nav="settings">Freischalten</button></div>`;
   return `<div class="empty">${esc(stationError.message)}<br><button class="btn" data-retry>Erneut versuchen</button></div>`;
 }
 
-function renderNearby() {
-  const el = $('#nearby-list');
-  if (stationError) return (el.innerHTML = stationProblem());
-  if (!stationData) return;
+let heroPrice = NaN;
+
+/** Hero-Karte „Jetzt tanken“: günstigste offene Tankstelle, eingefärbt nach Lage zu deinem Schnitt */
+function renderHero() {
+  const el = $('#hero');
+  el.className = 'hero';
+  if (stationError) {
+    const nokey = stationError.code === 'nokey';
+    el.innerHTML = `<div class="hero-top"><span class="hero-label">${ICONS.key} Live-Preise</span></div>
+      <h3>${nokey ? 'Günstigstes E10 in deiner Nähe' : 'Preise gerade nicht verfügbar'}</h3>
+      <p>${nokey ? 'Schalte Live-Preise frei und sieh beim Öffnen sofort, wo du am billigsten tankst.' : esc(stationError.message)}</p>
+      <div class="hero-actions"><button class="solid" ${nokey ? 'data-nav="settings"' : 'data-retry'}>${nokey ? 'Jetzt freischalten' : 'Erneut versuchen'}</button><button data-nav="stations">Mehr erfahren</button></div>`;
+    return;
+  }
+  if (!stationData) { el.innerHTML = '<div class="hero-skeleton"><i></i><i></i><i></i></div>'; return; }
   const list = sortStations(stationData.stations, 'price', { openOnly: true });
-  if (!list.length) return (el.innerHTML = '<div class="empty">Keine geöffnete Tankstelle im Umkreis.</div>');
-  el.innerHTML = list.slice(0, 3).map((s, i) => stationCard(s, i, list[0].price, true)).join('');
+  if (!list.length) {
+    el.innerHTML = `<div class="hero-top"><span class="hero-label"><i class="live-dot"></i> Jetzt tanken</span></div><h3>Alles geschlossen</h3><p>Im Umkreis von ${S().radius} km hat gerade keine Tankstelle geöffnet.</p>`;
+    return;
+  }
+  const best = list[0];
+  const ref = stats.totals(stats.inRange(store.getEntries(), Date.now() - 120 * DAY)).avgPrice;
+  const d = isNum(ref) ? (best.price - ref) * 100 : NaN;
+  let badge = `Günstigste von ${list.length}`;
+  if (isNum(d) && d < -1) { el.classList.add('good'); badge = `▼ ${num(-d, 1)} ct unter deinem Ø`; }
+  else if (isNum(d) && d > 2) { el.classList.add('bad'); badge = `▲ ${num(d, 1)} ct über deinem Ø`; }
+  el.innerHTML = `<div class="hero-top"><span class="hero-label"><i class="live-dot"></i> Jetzt tanken</span><span class="hero-badge">${badge}</span></div>
+    <div class="hero-price" id="hero-price"></div>
+    <div class="hero-station">${brandBadge(best.brand || best.name)}<div style="min-width:0"><b>${esc(displayName(best))}</b><span>${num(best.dist, 1)} km · ${esc(best.street)}</span></div></div>
+    <div class="hero-actions"><a class="solid" href="${mapsLink(best)}" target="_blank" rel="noopener">${ICONS.route} Route</a><button data-fill="${best.id}">${ICONS.plus} Hier getankt</button></div>`;
+  const fmt = (v) => `${fuelPrice(v)}<small>€/L</small>`;
+  countUp($('#hero-price'), isNum(heroPrice) ? heroPrice : best.price + 0.15, best.price, fmt);
+  heroPrice = best.price;
+}
+
+function renderNearby() {
+  renderHero();
+  const el = $('#nearby-list');
+  const wrap = [el, el.previousElementSibling];
+  const hide = (h) => wrap.forEach((x) => (x.hidden = h));
+  if (stationError || !stationData) return hide(true);
+  const list = sortStations(stationData.stations, 'price', { openOnly: true });
+  hide(list.length < 2);
+  el.innerHTML = list.slice(1, 4).map((s, i) => stationCard(s, i + 1, list[0].price, true)).join('');
 }
 
 function renderStations() {
@@ -308,7 +361,7 @@ function renderLog() {
   const all = store.getEntries();
   $('#log-list').innerHTML = groups.size ? [...groups.entries()].map(([m, list]) => `
     <div class="month-head"><span>${m}</span><span>${eur(sum(list, (e) => e.total))}</span></div>
-    ${list.map((e) => {
+    <div class="month-group">${list.map((e) => {
       const i = all.indexOf(e);
       const prev = all[i - 1];
       const d = prev ? (e.price - prev.price) * 100 : null;
@@ -318,9 +371,9 @@ function renderLog() {
           <div class="title">${esc(e.station || 'Tankung')}</div>
           <div class="meta">${num(e.liters)} L · ${num(e.price, 3)} €/L${cons.has(e.date) ? ` · ${num(cons.get(e.date), 1)} L/100` : ''}${e.receiptId ? ' · 🧾' : ''}${e.usage !== 'privat' ? ' · 💼' : ''}${e.demo ? ' · Demo' : ''}</div>
         </div>
-        <div class="amount">${eur(e.total)}${d != null ? `<small class="${d > 0 ? 'up' : 'down'}">${signed(d, 1)} ct</small>` : ''}</div>
+        <div class="amount">${eur(e.total)}${d != null ? `<small class="${d > 0 ? 'up' : 'down'}">${d > 0 ? '▲' : '▼'} ${signed(d, 1)} ct</small>` : ''}</div>
       </button>`;
-    }).join('')}`).join('') : '<div class="empty">Noch keine Tankungen erfasst.</div>';
+    }).join('')}</div>`).join('') : '<div class="empty">Noch keine Tankungen erfasst.</div>';
 }
 $('#log-year').addEventListener('change', renderLog);
 document.addEventListener('click', (e) => {
@@ -339,19 +392,27 @@ function renderTax() {
   fillYearSelect($('#tax-year'), false);
   const s = S();
   const r = yearReport(taxYearEntries());
-  $('#tax-summary').innerHTML = `
-    <div><span>Kraftstoff brutto</span><b>${eur(r.gross)}</b></div>
-    <div><span>davon MwSt 19 %</span><b>${eur(r.vat)}</b></div>
-    <div><span>Netto</span><b>${eur(r.net)}</b></div>
-    <div><span>Tankungen · Liter</span><b>${r.count} · ${num(r.liters, 0)}</b></div>
-    <div class="hl"><span>Beruflich brutto</span><b>${eur(r.business)}</b></div>
-    <div class="hl"><span>Vorsteuer beruflich</span><b>${eur(r.businessVat)}</b></div>`;
+  const bizPct = r.gross ? (r.business / r.gross) * 100 : 0;
+  $('#tax-summary').innerHTML = `<div class="tax-hero">
+    <div class="lbl">Kraftstoff ${$('#tax-year').value}</div>
+    <div class="big">${eur(r.gross)}</div>
+    <div class="muted small">${r.count} Tankungen · ${num(r.liters, 0)} Liter · davon MwSt ${eur(r.vat)}</div>
+    <div class="tax-bar" role="img" aria-label="Beruflicher Anteil ${num(bizPct, 0)} Prozent">
+      <i style="width:${bizPct}%;background:var(--accent)"></i><i style="flex:1;background:var(--surface-3)"></i>
+    </div>
+    <div class="tax-grid">
+      <div><span><i style="background:var(--accent)"></i>Beruflich (${num(bizPct, 0)} %)</span><b>${eur(r.business)}</b></div>
+      <div><span><i style="background:var(--surface-3)"></i>Privat</span><b>${eur(r.gross - r.business)}</b></div>
+      <div><span>Vorsteuer beruflich</span><b>${eur(r.businessVat)}</b></div>
+      <div><span>Netto gesamt</span><b>${eur(r.net)}</b></div>
+    </div>
+  </div>`;
   for (const [id, key] of [['#tax-commute-km', 'commuteKm'], ['#tax-workdays', 'workDays'], ['#tax-rate', 'commuteRate']]) {
     if (document.activeElement !== $(id)) $(id).value = s[key] ?? '';
   }
   const a = commuteAllowance(s.commuteKm, s.workDays, s.commuteRate);
   $('#tax-commute-result').innerHTML = s.commuteKm
-    ? `Entfernungspauschale ${$('#tax-year').value}<b>${eur(a)}</b><span class="muted small">${num(s.commuteKm, 0)} km × ${s.workDays} Tage × ${num(s.commuteRate, 2)} €${a < 1230 ? ' · liegt unter dem Arbeitnehmer-Pauschbetrag (1.230 €)' : ''}</span>`
+    ? `Entfernungspauschale ${$('#tax-year').value}<b class="num">${eur(a)}</b><span class="muted small">${num(s.commuteKm, 0)} km × ${s.workDays} Tage × ${num(s.commuteRate, 2)} €${a < 1230 ? ' · liegt unter dem Arbeitnehmer-Pauschbetrag (1.230 €)' : ''}</span>`
     : 'Trag deine einfache Strecke zur Arbeit ein, um die Pauschale zu berechnen.';
 }
 $('#tax-year').addEventListener('change', renderTax);
@@ -399,6 +460,7 @@ function openEntry(entry, prefill = {}) {
   form.full.checked = e.full !== false;
   form.usage.value = e.usage || 'privat';
   form.share.value = e.usage === 'beruflich' ? 100 : e.share || 0;
+  syncShareRow();
   form.note.value = e.note || '';
   if (isNum(e.price)) edits.push('price');
   $('#entry-title').textContent = entry ? 'Tankung bearbeiten' : 'Tanken erfassen';
@@ -457,14 +519,14 @@ function updateHint() {
 ['liters', 'price', 'total'].forEach((k) => form[k].addEventListener('input', () => { form[k].classList.remove('auto'); autoCalc(k); }));
 ['odometer', 'date'].forEach((k) => form[k].addEventListener('input', updateHint));
 form.full.addEventListener('change', updateHint);
-form.usage.addEventListener('change', () => {
+// Anteil-Zeile nur bei „Gemischt“ zeigen
+const syncShareRow = () => { $('#share-row').hidden = form.usage.value !== 'gemischt'; };
+$('#usage-seg').addEventListener('change', () => {
+  haptic();
   if (form.usage.value === 'beruflich') form.share.value = 100;
   if (form.usage.value === 'privat') form.share.value = 0;
   if (form.usage.value === 'gemischt' && (+form.share.value === 0 || +form.share.value === 100)) form.share.value = 50;
-});
-form.share.addEventListener('input', () => {
-  const v = +form.share.value;
-  form.usage.value = v >= 100 ? 'beruflich' : v <= 0 ? 'privat' : 'gemischt';
+  syncShareRow();
 });
 $('[data-close]', form).addEventListener('click', () => dlg.close());
 dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close(); });
@@ -716,6 +778,8 @@ $('#reset-all').addEventListener('click', async () => {
    ========================================================= */
 function renderAll() {
   $('#vehicle-name').textContent = S().vehicle || 'Mein Auto';
+  $('#greeting').textContent = greeting();
+  $('#today').textContent = new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
   renderSyncStatus();
   renderChartBlock();
   renderKpis();
@@ -755,14 +819,40 @@ function applySetupLink() {
   return true;
 }
 
+/* ---------- Willkommens-Rundgang beim ersten Start ---------- */
+function showOnboarding() {
+  const ob = $('#onboarding'), track = $('#ob-track'), next = $('#ob-next');
+  const dots = $$('#ob-dots i');
+  ob.hidden = false;
+  document.body.style.overflow = 'hidden';
+  const index = () => Math.round(track.scrollLeft / track.clientWidth);
+  track.addEventListener('scroll', () => {
+    const i = index();
+    dots.forEach((d, k) => d.classList.toggle('on', k === i));
+    next.textContent = i === dots.length - 1 ? 'Los geht’s' : 'Weiter';
+  }, { passive: true });
+  const finish = () => {
+    store.setSettings({ onboarded: true }, true);
+    ob.animate([{ opacity: 1 }, { opacity: 0, transform: 'scale(1.04)' }], { duration: 350, easing: 'ease-in' }).onfinish = () => { ob.hidden = true; document.body.style.overflow = ''; nav('home'); };
+  };
+  next.addEventListener('click', () => {
+    haptic();
+    const i = index();
+    if (i >= dots.length - 1) finish();
+    else track.scrollTo({ left: (i + 1) * track.clientWidth, behavior: 'smooth' });
+  });
+  $('#ob-demo').addEventListener('click', () => { store.mergeData(demoData()); finish(); toast('Beispieldaten geladen – in den Einstellungen wieder entfernbar', 4000); });
+}
+
 function start() {
   // Bittet den Browser, die Daten nie automatisch aufzuräumen (v. a. Safari löscht sonst nach Wochen ohne Nutzung)
   navigator.storage?.persist?.().then((ok) => store.setSettings({ persisted: ok }, true)).catch(() => {});
-  applySetupLink();
+  const fromSetupLink = applySetupLink();
   renderAll();
   const hash = location.hash.slice(1);
   if (['stations', 'log', 'tax', 'settings'].includes(hash)) nav(hash);
   if (new URLSearchParams(location.search).has('add')) openEntry(null);
+  else if (!fromSetupLink && !S().onboarded && !store.getEntries().length) showOnboarding();
   loadStations();
   updateSuggestions();
   // Beim Zurückkehren in die App frische Preise holen

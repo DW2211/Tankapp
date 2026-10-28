@@ -30,7 +30,7 @@ function ensureChart() {
   const LC = window.LightweightCharts;
   chart = LC.createChart(el(), {
     autoSize: true,
-    layout: { background: { type: 'solid', color: 'transparent' }, textColor: cssVar('--muted'), fontFamily: cssVar('--font'), fontSize: 11, attributionLogo: false },
+    layout: { background: { type: 'solid', color: 'transparent' }, textColor: cssVar('--muted'), fontFamily: cssVar('--rounded'), fontSize: 11, attributionLogo: false },
     grid: { vertLines: { visible: false }, horzLines: { color: cssVar('--grid') } },
     rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.12, bottom: 0.22 } },
     timeScale: { borderVisible: false, timeVisible: false, fixLeftEdge: true, fixRightEdge: true, lockVisibleTimeRangeOnResize: true },
@@ -131,7 +131,7 @@ export function renderChart({ entries, snapshots, mode, range, style }, onHover)
   clear();
   const from = rangeStart(range, entries);
   const list = entries.filter((e) => new Date(e.date).getTime() >= from);
-  const up = cssVar('--up'), down = cssVar('--down'), accent = cssVar('--accent'), muted = cssVar('--muted');
+  const up = cssVar('--up'), down = cssVar('--down'), accent = cssVar('--accent'), muted = '#8e8e93';
   const head = { price: '–', change: '&nbsp;', cls: '', label: '', legend: '' };
   const byTime = new Map(); // für Hover
 

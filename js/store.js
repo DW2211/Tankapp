@@ -20,7 +20,7 @@ const DEFAULT_SETTINGS = {
   workDays: 220,
   commuteRate: 0.38,
   chartMode: 'price',
-  chartRange: '6M',
+  chartRange: '3M',
   chartStyle: 'candle',
 };
 
