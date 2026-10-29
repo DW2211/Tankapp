@@ -1,0 +1,61 @@
+// Tankbuch als Trusted Web Activity: die App öffnet die Web-App https://dw2211.github.io/Tankapp/
+// im Vollbild (Chrome-Engine, ohne Adressleiste). Updates der Web-App kommen ohne neues Store-Release.
+plugins {
+    id 'com.android.application'
+}
+
+def appHost = 'dw2211.github.io'
+def startPath = '/Tankapp/'
+
+android {
+    namespace 'io.github.dw2211.tankbuch'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId 'io.github.dw2211.tankbuch'
+        minSdk 24
+        targetSdk 36
+        // versionCode bei jedem Store-Upload erhöhen (CI setzt ihn automatisch aus der Laufnummer)
+        versionCode (System.getenv('VERSION_CODE') ?: '1').toInteger()
+        versionName '1.0.' + (System.getenv('VERSION_CODE') ?: '1')
+
+        manifestPlaceholders = [
+            hostName       : appHost,
+            launchUrl      : "https://${appHost}${startPath}",
+            pathPrefix     : startPath,
+        ]
+        resValue 'string', 'app_name', 'Tankbuch'
+        resValue 'string', 'launch_url', "https://${appHost}${startPath}"
+        resValue 'string', 'provider_authority', 'io.github.dw2211.tankbuch.fileprovider'
+        resValue 'string', 'asset_statements', """[{ "relation": ["delegate_permission/common.handle_all_urls"], "target": { "namespace": "web", "site": "https://${appHost}" } }]"""
+    }
+
+    signingConfigs {
+        // Debug-Schlüssel liegt bewusst im Repo (nicht geheim) – damit sind Test-APKs stabil signiert.
+        // Der Upload-Schlüssel für den Play Store ist NICHT im Repo; die AAB wird außerhalb signiert.
+        debug {
+            storeFile rootProject.file('debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+        debug {
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.5.0'
+}
