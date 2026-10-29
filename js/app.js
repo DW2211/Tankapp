@@ -444,14 +444,17 @@ function renderLog() {
     <div class="month-head"><span>${m}</span><span>${eur(sum(list, (e) => e.total))}</span></div>
     <div class="month-group">${list.map((e) => {
       const rate = stats.rateFill(e, all, snaps);
+      // Veränderung ggü. der vorherigen Tankung (rot = teurer, grün = günstiger)
+      const prev = all[all.indexOf(e) - 1];
+      const d = prev ? (stats.paidPrice(e) - stats.paidPrice(prev)) * 100 : null;
       return `<button class="entry" data-edit="${e.id}">
         <div class="day"><b>${new Date(e.date).getDate()}</b><span>${new Date(e.date).toLocaleDateString('de-DE', { weekday: 'short' })}</span></div>
         <div style="min-width:0">
           <div class="title">${esc(e.station || 'Tankung')}</div>
           <div class="meta">${num(e.liters)} L · ${num(e.price, 3)} €/L${e.discount > 0 ? ` · <span class="disc-c">−${eur(e.discount)}</span>` : ''}${cons.has(e.date) ? ` · ${num(cons.get(e.date), 1)} L/100` : ''}${e.receiptId ? ' · 🧾' : ''}${e.usage !== 'privat' ? ' · 💼' : ''}${e.demo ? ' · Demo' : ''}</div>
         </div>
-        <div class="amount">${eur(e.total)}</div>
-        ${rate ? `<div class="rate ${rate.verdict}"><b>${{ good: '👍 Günstig getankt', ok: '👌 Normaler Preis', bad: '👎 Teuer getankt' }[rate.verdict]}</b><span>${Math.abs(rate.diffCt) < 1 ? 'wie' : `${num(Math.abs(rate.diffCt), 1)} ct ${rate.diffCt < 0 ? 'unter' : 'über'}`} ${rate.ref}</span></div>` : ''}
+        <div class="amount">${eur(e.total)}${d != null && Math.abs(d) >= 0.05 ? `<small class="${d > 0 ? 'up' : 'down'}">${d > 0 ? '▲' : '▼'} ${num(Math.abs(d), 1)} ct ${d > 0 ? 'teurer' : 'günstiger'}</small>` : d != null ? '<small class="muted">± 0 ct</small>' : ''}</div>
+        ${rate ? `<div class="rate ${rate.verdict}"><b>${{ good: '👍 Günstig getankt', ok: '👌 Normaler Preis', bad: '👎 Teuer getankt' }[rate.verdict]}</b><span>${Math.abs(rate.diffCt) < 1 ? 'wie' : `${num(Math.abs(rate.diffCt), 1)} ct ${rate.diffCt < 0 ? 'unter' : 'über'}`} ${rate.ref === 'Ø Umgebung' ? 'Umgebung' : 'Ø'}</span></div>` : ''}
       </button>`;
     }).join('')}</div>`).join('') : '<div class="empty">Noch keine Tankungen erfasst.</div>';
 }
