@@ -50,6 +50,25 @@ export function savings(entries, snapshots) {
   return { saved, n };
 }
 
+/**
+ * War das gut oder teuer getankt? Vergleich mit dem Durchschnitt der Tankstellen in der Nähe am selben Tag,
+ * ohne solche Daten mit dem eigenen Durchschnitt der 90 Tage davor.
+ * @returns {{ verdict: 'good'|'ok'|'bad', diffCt: number, ref: string } | null}
+ */
+export function rateFill(e, entries, snapshots) {
+  const paid = paidPrice(e);
+  let refPrice = marketRef(snapshots, e.date), ref = 'Ø Umgebung';
+  if (!isNum(refPrice)) {
+    const t = new Date(e.date).getTime();
+    const prev = entries.filter((x) => x !== e && new Date(x.date).getTime() < t && new Date(x.date).getTime() > t - 90 * DAY);
+    if (prev.length < 2) return null;
+    refPrice = avg(prev, paidPrice);
+    ref = 'deinem Ø';
+  }
+  const diffCt = (paid - refPrice) * 100;
+  return { verdict: diffCt <= -1 ? 'good' : diffCt >= 1 ? 'bad' : 'ok', diffCt, ref };
+}
+
 export const inRange = (entries, from, to = Infinity) => entries.filter((e) => { const t = new Date(e.date).getTime(); return t >= from && t < to; });
 
 export function yearRange(year) {

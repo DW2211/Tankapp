@@ -158,12 +158,13 @@ export function renderChart({ entries, snapshots, mode, range, style }, onHover)
           const ref = mCandles.find((d) => d.time === day);
           const dayAvg = ref?.avgs.length ? avg(ref.avgs) : NaN;
           const good = !isNum(dayAvg) || p.v <= dayAvg;
-          byTime.set(day, `${fuelPrice(p.v)} <small>getankt · ${num(p.e.liters, 1)} L${isNum(dayAvg) ? ` · ${signed((p.v - dayAvg) * 100, 1)} ct ggü. Ø Umgebung` : ''}</small>`);
+          const dd = (p.v - dayAvg) * 100;
+          byTime.set(day, `${fuelPrice(p.v)} <small>getankt · ${num(p.e.liters, 1)} L${isNum(dayAvg) ? ` · ${good ? '👍' : '👎'} ${num(Math.abs(dd), 1)} ct ${dd <= 0 ? 'günstiger' : 'teurer'} als Ø Umgebung` : ''}</small>`);
           return { time: day, position: 'belowBar', color: good ? down : up, shape: 'arrowUp', text: inCandles.length <= 6 ? num(p.v, 3) : '' };
         }));
         volFrom = firstCandle;
         series.push(s);
-        head.legend = `<span>Kerze = 1 Tag · günstigstes E10 in der Nähe</span><span><i style="background:${down}"></i>gefallen</span><span><i style="background:${up}"></i>gestiegen</span><span><b class="down">▲</b> getankt unter / <b class="up">▲</b> über Ø Umgebung</span>`;
+        head.legend = `<span>Kerze = 1 Tag · günstigstes E10 in der Nähe</span><span><i style="background:${down}"></i>billiger als am Vortag</span><span><i style="background:${up}"></i>teurer als am Vortag</span><span><b class="down">▲</b> du hast günstig getankt</span><span><b class="up">▲</b> du hast teuer getankt</span>`;
       } else if (style === 'candle') {
         const by = range === '1M' || range === '3M' ? 'week' : 'month';
         const s = c.addCandlestickSeries({ upColor: up, downColor: down, borderVisible: false, wickUpColor: up, wickDownColor: down, priceFormat: priceFmt });
@@ -171,7 +172,7 @@ export function renderChart({ entries, snapshots, mode, range, style }, onHover)
         s.setData(data);
         data.forEach((d) => byTime.set(d.time, `${fuelPrice(d.close)} <small>H ${num(d.high, 3)} · T ${num(d.low, 3)}</small>`));
         series.push(s);
-        head.legend = `<span><i style="background:${down}"></i>günstiger geworden</span><span><i style="background:${up}"></i>teurer geworden</span>`;
+        head.legend = `<span><i style="background:${down}"></i>Preis gesunken = gut</span><span><i style="background:${up}"></i>Preis gestiegen = schlecht</span>`;
         head.legend += `<span>Kerze = ${by === 'week' ? 'Woche' : 'Monat'} deiner Tankpreise</span>`;
       } else {
         const s = c.addAreaSeries({ lineColor: color, topColor: color + '55', bottomColor: color + '00', lineWidth: 2, priceFormat: priceFmt, crosshairMarkerRadius: 5 });
@@ -205,7 +206,10 @@ export function renderChart({ entries, snapshots, mode, range, style }, onHover)
       head.legend += `<span><i style="background:${muted}"></i>getankte Liter</span>`;
 
       head.price = fuelPrice(last);
-      head.change = `${signed(diff * 100, 1)} ct (${signed((diff / first) * 100, 1)} %) <span class="muted">seit ${fmtDate(pts[0].ms, { day: '2-digit', month: 'short' })}</span>`;
+      const since = `<span class="muted">seit ${fmtDate(pts[0].ms, { day: '2-digit', month: 'short' })}</span>`;
+      head.change = Math.abs(diff) < 0.0005
+        ? `unverändert ${since}`
+        : `${num(Math.abs(diff) * 100, 1)} ct ${diff > 0 ? 'teurer' : 'günstiger'} (${signed((diff / first) * 100, 1)} %) ${since}`;
       head.cls = diff > 0 ? 'up' : diff < 0 ? 'down' : '';
     }
   }
@@ -245,7 +249,7 @@ export function renderChart({ entries, snapshots, mode, range, style }, onHover)
       series.push(s);
       const last = seg[seg.length - 1].l100;
       head.price = `${num(a, 1, 1)} <small style="font-size:.5em">L/100 km</small>`;
-      head.change = `zuletzt ${num(last, 1, 1)} L (${signed(last - a, 1)} ggü. Ø)`;
+      head.change = `zuletzt ${num(last, 1, 1)} L – ${num(Math.abs(last - a), 1, 1)} L ${last > a ? 'mehr' : 'weniger'} als dein Ø`;
       head.cls = last > a ? 'up' : 'down';
       head.legend = `<span><i style="background:${accent}"></i>je Volltankung</span><span><i style="background:${muted}"></i>Durchschnitt</span>`;
     }

@@ -111,7 +111,7 @@ function renderKpis() {
   const consSeries = stats.consumptionSegments(entries).slice(-10).map((x) => x.l100);
   const kpi = ({ icon, color, label, value, sub = '', cls = '', spark = '' }) => `<div class="kpi">${spark}<div class="k-icon" style="--c:${color}">${ICONS[icon]}</div><div class="label">${label}</div><div class="value num ${cls}">${value}</div><div class="sub">${sub}</div></div>`;
   $('#kpis').innerHTML = [
-    kpi({ icon: 'wallet', color: '#0a84ff', label: 'Diesen Monat', value: eur(thisMonth.total), sub: lastMonth.count ? `<span class="${delta > 0 ? 'up' : 'down'}">${delta > 0 ? '▲' : '▼'} ${signed(delta, 0)} €</span> ggü. Vormonat` : `${thisMonth.count} Tankungen`, spark: sparkline(months, '#0a84ff') }),
+    kpi({ icon: 'wallet', color: '#0a84ff', label: 'Diesen Monat', value: eur(thisMonth.total), sub: lastMonth.count ? `<span class="${delta > 0 ? 'up' : 'down'}">${delta > 0 ? '▲' : '▼'} ${eur(Math.abs(delta), 0)} ${delta > 0 ? 'mehr' : 'weniger'}</span> als im Vormonat` : `${thisMonth.count} Tankungen`, spark: sparkline(months, '#0a84ff') }),
     kpi({ icon: 'calendar', color: '#5e5ce6', label: `Seit 1.1.${year}`, value: eur(ytd.total, 0), sub: ytd.count && dayOfYear > 20 ? `Prognose ${eur((ytd.total / dayOfYear) * 365, 0)}` : `${ytd.count} Tankungen` }),
     kpi({ icon: 'drop', color: '#64d2ff', label: 'Ø Verbrauch', value: isNum(cons) ? `${num(cons, 1, 1)} L` : '–', sub: 'pro 100 km', spark: sparkline(consSeries, '#64d2ff') }),
     kpi({ icon: 'road', color: '#ff9f0a', label: 'Kosten / 100 km', value: isNum(c100) ? eur(c100) : '–', sub: isNum(kmYtd) ? `${num(kmYtd, 0)} km in ${year}` : 'km-Stand erfassen' }),
@@ -252,7 +252,7 @@ function stationCard(st, i, ref, compact) {
     </div>
     <div>
       <div class="price num">${fuelPrice(st.eff)}</div>
-      ${st.disc ? `<div class="was num">${num(st.price, 3)}</div>` : delta != null && !isBest && delta > 0.05 ? `<div class="delta up">▲ ${num(delta, 1)} ct</div>` : isBest ? '<div class="delta best-tag">★ Beste Wahl</div>' : ''}
+      ${st.disc ? `<div class="was num">${num(st.price, 3)}</div>` : delta != null && !isBest && delta > 0.05 ? `<div class="delta up">▲ ${num(delta, 1)} ct teurer</div>` : isBest ? '<div class="delta best-tag">★ Beste Wahl</div>' : ''}
     </div>
     <div class="st-foot">${verdict(st)}${discTag(st)}</div>
     ${compact ? '' : `<div class="actions"><a href="${mapsLink(st)}" target="_blank" rel="noopener">${ICONS.route}Route</a><button data-fill="${st.id}" data-eff="${st.eff}">${ICONS.plus}Hier getankt</button></div>`}
@@ -434,19 +434,24 @@ function renderLog() {
     (groups.get(k) || groups.set(k, []).get(k)).push(e);
   });
   const all = store.getEntries();
+  const snaps = store.getSnapshots();
+  const rated = entries.map((e) => stats.rateFill(e, all, snaps)).filter(Boolean);
+  const good = rated.filter((r) => r.verdict === 'good').length, bad = rated.filter((r) => r.verdict === 'bad').length;
+  $('#log-score').innerHTML = rated.length
+    ? `<b class="down">👍 ${good}× günstig</b><b>👌 ${rated.length - good - bad}× normal</b><b class="up">👎 ${bad}× teuer</b>`
+    : '';
   $('#log-list').innerHTML = groups.size ? [...groups.entries()].map(([m, list]) => `
     <div class="month-head"><span>${m}</span><span>${eur(sum(list, (e) => e.total))}</span></div>
     <div class="month-group">${list.map((e) => {
-      const i = all.indexOf(e);
-      const prev = all[i - 1];
-      const d = prev ? (stats.paidPrice(e) - stats.paidPrice(prev)) * 100 : null;
+      const rate = stats.rateFill(e, all, snaps);
       return `<button class="entry" data-edit="${e.id}">
         <div class="day"><b>${new Date(e.date).getDate()}</b><span>${new Date(e.date).toLocaleDateString('de-DE', { weekday: 'short' })}</span></div>
         <div style="min-width:0">
           <div class="title">${esc(e.station || 'Tankung')}</div>
           <div class="meta">${num(e.liters)} L · ${num(e.price, 3)} €/L${e.discount > 0 ? ` · <span class="disc-c">−${eur(e.discount)}</span>` : ''}${cons.has(e.date) ? ` · ${num(cons.get(e.date), 1)} L/100` : ''}${e.receiptId ? ' · 🧾' : ''}${e.usage !== 'privat' ? ' · 💼' : ''}${e.demo ? ' · Demo' : ''}</div>
         </div>
-        <div class="amount">${eur(e.total)}${d != null ? `<small class="${d > 0 ? 'up' : 'down'}">${d > 0 ? '▲' : '▼'} ${signed(d, 1)} ct</small>` : ''}</div>
+        <div class="amount">${eur(e.total)}</div>
+        ${rate ? `<div class="rate ${rate.verdict}"><b>${{ good: '👍 Günstig getankt', ok: '👌 Normaler Preis', bad: '👎 Teuer getankt' }[rate.verdict]}</b><span>${Math.abs(rate.diffCt) < 1 ? 'wie' : `${num(Math.abs(rate.diffCt), 1)} ct ${rate.diffCt < 0 ? 'unter' : 'über'}`} ${rate.ref}</span></div>` : ''}
       </button>`;
     }).join('')}</div>`).join('') : '<div class="empty">Noch keine Tankungen erfasst.</div>';
 }
@@ -615,7 +620,7 @@ function updateHint() {
   const ref = stats.totals(stats.inRange(store.getEntries(), Date.now() - 120 * DAY)).avgPrice;
   if (isNum(p) && isNum(ref)) {
     const d = (p - ref) * 100;
-    parts.push(`<span class="${d > 0 ? 'up' : 'down'}">${signed(d, 1)} ct ggü. deinem Ø</span>`);
+    parts.push(Math.abs(d) < 1 ? 'Preis wie dein Ø' : `<span class="${d > 0 ? 'up' : 'down'}">${d > 0 ? '👎' : '👍'} ${num(Math.abs(d), 1)} ct ${d > 0 ? 'teurer' : 'günstiger'} als dein Ø</span>`);
   }
   $('#calc-hint').innerHTML = parts.join(' · ');
 }
