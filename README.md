@@ -39,6 +39,11 @@ Am Handy öffnen → **Teilen → Zum Home-Bildschirm** (iPhone) bzw. **⋮ → 
 3. **Bereitstellen → Neue Bereitstellung → Web-App**, Ausführen als **Ich**, Zugriff **Jeder** → Zugriff erlauben.
 4. Die `…/exec`-URL und dein Passwort in der App eintragen → **Jetzt übertragen**. Optional „automatisch übertragen“ einschalten.
 
+## Android / Play Store
+Die Android-App ist eine Trusted Web Activity (`android/`) und lädt die Web-App im Vollbild.
+Gebaut wird über GitHub Actions (`.github/workflows/android.yml`, Ergebnis im Branch `android-build`).
+Alles zur Veröffentlichung: [`playstore/ANLEITUNG.md`](playstore/ANLEITUNG.md).
+
 ## Tipps für den Beleg-Scan
 - Beleg flach hinlegen, gutes Licht, möglichst gerade von oben fotografieren.
 - Beim ersten Scan lädt die Texterkennung einmalig ca. 10 MB, danach geht es offline und schneller.
