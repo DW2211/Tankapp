@@ -21,6 +21,7 @@ export function yearReport(entries) {
   return {
     count: entries.length,
     liters: sum(entries, (e) => e.liters),
+    discount: sum(entries, (e) => e.discount || 0),
     gross: sum(entries, (e) => e.total),
     net: sum(splits, (s) => s.net),
     vat: sum(splits, (s) => s.vat),
@@ -36,13 +37,13 @@ const csvNum = (v, d = 2) => (isNum(v) ? v.toFixed(d).replace('.', ',') : '');
 const csvCell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
 
 export function exportCsv(entries, year, settings) {
-  const head = ['Datum', 'Uhrzeit', 'Tankstelle', 'Kraftstoff', 'Liter', 'Preis €/L', 'Betrag brutto €', 'Netto €', 'MwSt 19 % €', 'Kilometerstand', 'Nutzung', 'Beruflich %', 'Beruflich brutto €', 'Vorsteuer beruflich €', 'Beleg', 'Notiz'];
+  const head = ['Datum', 'Uhrzeit', 'Tankstelle', 'Kraftstoff', 'Liter', 'Preis €/L', 'Rabatt €', 'Betrag brutto €', 'Netto €', 'MwSt 19 % €', 'Kilometerstand', 'Nutzung', 'Beruflich %', 'Beruflich brutto €', 'Vorsteuer beruflich €', 'Beleg', 'Notiz'];
   const rows = entries.map((e) => {
     const t = taxSplit(e);
-    return [fmtDate(e.date), fmtTime(e.date), e.station, e.fuel, csvNum(e.liters), csvNum(e.price, 3), csvNum(e.total), csvNum(t.net), csvNum(t.vat), isNum(e.odometer) ? e.odometer : '', e.usage, businessShare(e), csvNum(t.business), csvNum(t.businessVat), e.receiptId ? receiptName(e) : '', e.note].map(csvCell).join(';');
+    return [fmtDate(e.date), fmtTime(e.date), e.station, e.fuel, csvNum(e.liters), csvNum(e.price, 3), e.discount > 0 ? csvNum(e.discount) : '', csvNum(e.total), csvNum(t.net), csvNum(t.vat), isNum(e.odometer) ? e.odometer : '', e.usage, businessShare(e), csvNum(t.business), csvNum(t.businessVat), e.receiptId ? receiptName(e) : '', e.note].map(csvCell).join(';');
   });
   const r = yearReport(entries);
-  rows.push('', ['Summe', '', '', '', csvNum(r.liters), '', csvNum(r.gross), csvNum(r.net), csvNum(r.vat), '', '', '', csvNum(r.business), csvNum(r.businessVat)].map(csvCell).join(';'));
+  rows.push('', ['Summe', '', '', '', csvNum(r.liters), '', csvNum(r.discount), csvNum(r.gross), csvNum(r.net), csvNum(r.vat), '', '', '', csvNum(r.business), csvNum(r.businessVat)].map(csvCell).join(';'));
   const name = `Tankbuch_${slug(settings.vehicle)}_${year}.csv`;
   download(name, '﻿' + [head.map(csvCell).join(';'), ...rows].join('\r\n'), 'text/csv;charset=utf-8');
 }
@@ -69,6 +70,7 @@ export function printReport(entries, year, settings) {
       <div>Liter gesamt<b>${num(r.liters)}</b></div>
       <div>Kosten brutto<b>${eur(r.gross)}</b></div>
       <div>davon MwSt 19 %<b>${eur(r.vat)}</b></div>
+      ${r.discount > 0 ? `<div>Rabatte bereits abgezogen<b>${eur(r.discount)}</b></div>` : ''}
       <div>Beruflicher Anteil brutto<b>${eur(r.business)}</b></div>
       <div>Vorsteuer beruflich<b>${eur(r.businessVat)}</b></div>
     </div>

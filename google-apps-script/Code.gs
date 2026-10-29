@@ -26,7 +26,7 @@ const CHUNK = 45000; // Zellen fassen max. 50.000 Zeichen
 const HEADERS = [
   'ID', 'Datum', 'Uhrzeit', 'Tankstelle', 'Kraftstoff', 'Liter', 'Preis €/L', 'Betrag €',
   'Kilometerstand', 'Gefahrene km', 'Verbrauch L/100km', 'Vollgetankt', 'Nutzung',
-  'Beruflich %', 'Beruflicher Anteil €', 'Netto €', 'MwSt €', 'Notiz',
+  'Beruflich %', 'Beruflicher Anteil €', 'Netto €', 'MwSt €', 'Rabatt €', 'Notiz',
 ];
 
 function doPost(e) {
@@ -56,7 +56,7 @@ function doPost(e) {
       sh.getRange(2, 8, n, 1).setNumberFormat('#,##0.00 €');
       sh.getRange(2, 9, n, 2).setNumberFormat('#,##0');
       sh.getRange(2, 11, n, 1).setNumberFormat('0.0');
-      sh.getRange(2, 15, n, 3).setNumberFormat('#,##0.00 €');
+      sh.getRange(2, 15, n, 4).setNumberFormat('#,##0.00 €');
     }
     sh.hideColumns(1);
     sh.autoResizeColumns(2, HEADERS.length - 1);

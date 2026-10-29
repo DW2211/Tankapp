@@ -30,6 +30,7 @@ export function toRows(entries) {
       'Beruflicher Anteil €': round2(t.business),
       'Netto €': round2(t.net),
       'MwSt €': round2(t.vat),
+      'Rabatt €': e.discount > 0 ? round2(e.discount) : '',
       'Notiz': e.note || '',
     };
   });

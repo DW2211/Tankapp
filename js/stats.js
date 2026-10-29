@@ -1,5 +1,8 @@
 import { isNum, sum, avg, DAY, startOfDay } from './util.js';
 
+/** Tatsächlich bezahlter Literpreis – nach Rabatt (ADAC, Coupon …) */
+export const paidPrice = (e) => (e.discount > 0 && e.liters > 0 ? e.total / e.liters : e.price);
+
 /** Verbrauch nach Voll-zu-Voll-Methode. Teilbetankungen zwischen zwei Volltankungen werden mitgezählt. */
 export function consumptionSegments(entries) {
   const out = [];
@@ -42,7 +45,7 @@ export function savings(entries, snapshots) {
   let saved = 0, n = 0;
   for (const e of entries) {
     const ref = marketRef(snapshots, e.date);
-    if (isNum(ref)) { saved += (ref - e.price) * e.liters; n++; }
+    if (isNum(ref)) { saved += (ref - paidPrice(e)) * e.liters; n++; }
   }
   return { saved, n };
 }

@@ -1,7 +1,7 @@
 import { $, $$, eur, num, fuelPrice, signed, parseNum, isNum, uid, toast, haptic, download, fmtDate, fmtTime, monthName, toLocalInput, esc, DAY, avg, sum } from './util.js';
 import * as store from './store.js';
 import { renderChart, hoverDate } from './charts.js';
-import { fetchStations, marketSnapshot, sortStations, displayName, mapsLink, DISCOUNT_PRESETS, ROAD_FACTOR } from './stations.js';
+import { fetchStations, marketSnapshot, sortStations, displayName, mapsLink, DISCOUNT_PRESETS, ROAD_FACTOR, activeDiscount } from './stations.js';
 import { scanReceipt, compressImage } from './ocr.js';
 import { syncToSheets, uploadReceipts, fetchBackup, fetchReceipt, markUploaded } from './sheets.js';
 import { yearReport, commuteAllowance, exportCsv, printReport, exportReceipts } from './tax.js';
@@ -100,14 +100,14 @@ function renderKpis() {
   const last12 = stats.totals(stats.inRange(entries, Date.now() - 365 * DAY));
   const cons = stats.avgConsumption(entries);
   const c100 = stats.avgCostPer100(entries);
-  const best = entries.length ? entries.reduce((a, b) => (b.price < a.price ? b : a)) : null;
+  const best = entries.length ? entries.reduce((a, b) => (stats.paidPrice(b) < stats.paidPrice(a) ? b : a)) : null;
   const sv = stats.savings(entries, store.getSnapshots());
   const kmYtd = stats.kmDriven(stats.inRange(entries, ...stats.yearRange(year)));
 
   const delta = thisMonth.total - lastMonth.total;
   // Monatssummen der letzten 12 Monate für die Sparklines
   const months = Array.from({ length: 12 }, (_, i) => stats.totals(stats.inRange(entries, ...stats.monthRange(i - 11))).total);
-  const priceSeries = entries.slice(-12).map((e) => e.price);
+  const priceSeries = entries.slice(-12).map(stats.paidPrice);
   const consSeries = stats.consumptionSegments(entries).slice(-10).map((x) => x.l100);
   const kpi = ({ icon, color, label, value, sub = '', cls = '', spark = '' }) => `<div class="kpi">${spark}<div class="k-icon" style="--c:${color}">${ICONS[icon]}</div><div class="label">${label}</div><div class="value num ${cls}">${value}</div><div class="sub">${sub}</div></div>`;
   $('#kpis').innerHTML = [
@@ -115,7 +115,7 @@ function renderKpis() {
     kpi({ icon: 'calendar', color: '#5e5ce6', label: `Seit 1.1.${year}`, value: eur(ytd.total, 0), sub: ytd.count && dayOfYear > 20 ? `Prognose ${eur((ytd.total / dayOfYear) * 365, 0)}` : `${ytd.count} Tankungen` }),
     kpi({ icon: 'drop', color: '#64d2ff', label: 'Ø Verbrauch', value: isNum(cons) ? `${num(cons, 1, 1)} L` : '–', sub: 'pro 100 km', spark: sparkline(consSeries, '#64d2ff') }),
     kpi({ icon: 'road', color: '#ff9f0a', label: 'Kosten / 100 km', value: isNum(c100) ? eur(c100) : '–', sub: isNum(kmYtd) ? `${num(kmYtd, 0)} km in ${year}` : 'km-Stand erfassen' }),
-    kpi({ icon: 'tag', color: '#bf5af2', label: 'Ø Preis 12 Mon.', value: isNum(last12.avgPrice) ? fuelPrice(last12.avgPrice) : '–', sub: best ? `Bestpreis ${num(best.price, 3)} €` : '', spark: sparkline(priceSeries, '#bf5af2') }),
+    kpi({ icon: 'tag', color: '#bf5af2', label: 'Ø Preis 12 Mon.', value: isNum(last12.avgPrice) ? fuelPrice(last12.avgPrice) : '–', sub: best ? `Bestpreis ${num(stats.paidPrice(best), 3)} €` : '', spark: sparkline(priceSeries, '#bf5af2') }),
     sv.n
       ? kpi({ icon: 'piggy', color: '#30d158', label: 'Gespart', value: eur(sv.saved), sub: `ggü. Ø Umgebung · ${sv.n}×`, cls: sv.saved >= 0 ? 'down' : 'up' })
       : kpi({ icon: 'drop', color: '#30d158', label: 'Liter 12 Mon.', value: isNum(last12.liters) ? num(last12.liters, 0) + ' L' : '–', sub: `${last12.count} Tankungen` }),
@@ -340,7 +340,8 @@ document.addEventListener('click', (e) => {
   const f = e.target.closest('[data-fill]');
   if (f) {
     const st = stationData.stations.find((x) => x.id === f.dataset.fill);
-    openEntry(null, { station: `${displayName(st)} ${st.street}`, price: +f.dataset.eff || st.price });
+    openEntry(null, { station: `${displayName(st)} ${st.street}`, price: st.price });
+    autoCalc(null);
   }
 });
 
@@ -438,12 +439,12 @@ function renderLog() {
     <div class="month-group">${list.map((e) => {
       const i = all.indexOf(e);
       const prev = all[i - 1];
-      const d = prev ? (e.price - prev.price) * 100 : null;
+      const d = prev ? (stats.paidPrice(e) - stats.paidPrice(prev)) * 100 : null;
       return `<button class="entry" data-edit="${e.id}">
         <div class="day"><b>${new Date(e.date).getDate()}</b><span>${new Date(e.date).toLocaleDateString('de-DE', { weekday: 'short' })}</span></div>
         <div style="min-width:0">
           <div class="title">${esc(e.station || 'Tankung')}</div>
-          <div class="meta">${num(e.liters)} L · ${num(e.price, 3)} €/L${cons.has(e.date) ? ` · ${num(cons.get(e.date), 1)} L/100` : ''}${e.receiptId ? ' · 🧾' : ''}${e.usage !== 'privat' ? ' · 💼' : ''}${e.demo ? ' · Demo' : ''}</div>
+          <div class="meta">${num(e.liters)} L · ${num(e.price, 3)} €/L${e.discount > 0 ? ` · <span class="disc-c">−${eur(e.discount)}</span>` : ''}${cons.has(e.date) ? ` · ${num(cons.get(e.date), 1)} L/100` : ''}${e.receiptId ? ' · 🧾' : ''}${e.usage !== 'privat' ? ' · 💼' : ''}${e.demo ? ' · Demo' : ''}</div>
         </div>
         <div class="amount">${eur(e.total)}${d != null ? `<small class="${d > 0 ? 'up' : 'down'}">${d > 0 ? '▲' : '▼'} ${signed(d, 1)} ct</small>` : ''}</div>
       </button>`;
@@ -528,6 +529,9 @@ function openEntry(entry, prefill = {}) {
   form.liters.value = isNum(e.liters) ? num(e.liters, 2) : '';
   form.price.value = isNum(e.price) ? num(e.price, 3, 3) : '';
   form.total.value = isNum(e.total) ? num(e.total, 2) : '';
+  form.discount.value = e.discount > 0 ? num(e.discount, 2) : '';
+  discountManual = e.discount > 0;
+  discountRule = null;
   form.odometer.value = isNum(e.odometer) ? e.odometer : '';
   form.odometer.placeholder = last && isNum(last.odometer) && !entry ? `zuletzt ${num(last.odometer, 0)}` : 'optional';
   form.station.value = e.station || '';
@@ -543,6 +547,7 @@ function openEntry(entry, prefill = {}) {
   $('#ocr-text').hidden = true;
   showReceipt(null);
   if (entry?.receiptId) store.getReceipt(entry.receiptId).then((b) => b && showReceipt(URL.createObjectURL(b)));
+  applyDiscountRule();
   updateHint();
   dlg.showModal();
 }
@@ -554,19 +559,41 @@ function showReceipt(url) {
 }
 
 /** Aus zwei der drei Werte Liter / Preis / Betrag den dritten berechnen */
+let discountManual = false;   // Rabatt selbst eingetragen oder vom Beleg → nicht automatisch überschreiben
+let discountRule = null;      // aktiver Rabatt aus „Meine Rabatte“ (ct/L) für die eingetragene Tankstelle
+
+/** Rabatt aus „Meine Rabatte“ passend zur Tankstelle vorschlagen */
+function applyDiscountRule() {
+  const hint = $('#disc-auto');
+  if (discountManual) { discountRule = null; return; }
+  const name = form.station.value.trim();
+  discountRule = name ? activeDiscount({ brand: name, name: '' }, S().discounts) : null;
+  hint.textContent = discountRule ? `−${num(discountRule.ct, 1, 0)} ct/L · ${discountRule.label}` : 'ADAC, Coupon, Tankkarte …';
+  hint.classList.toggle('on', !!discountRule);
+  if (!discountRule) form.discount.value = '';
+}
+
+/**
+ * Aus zwei der drei Werte Liter / Preis / Betrag den dritten berechnen.
+ * Betrag = Liter × Preis − Rabatt (Rabatt fest in € oder automatisch in ct/L)
+ */
 function autoCalc(changed) {
-  edits = [...edits.filter((x) => x !== changed), changed];
+  if (changed) edits = [...edits.filter((x) => x !== changed), changed];
+  applyDiscountRule();
   const v = { liters: parseNum(form.liters.value), price: parseNum(form.price.value), total: parseNum(form.total.value) };
   const known = edits.filter((k) => isNum(v[k]) && v[k] > 0).slice(-2);
+  const c = discountRule ? discountRule.ct / 100 : 0;          // Rabatt je Liter
+  const D = discountRule ? 0 : parseNum(form.discount.value) || 0; // fester Rabatt in €
   if (known.length < 2) return updateHint();
   const target = ['liters', 'price', 'total'].find((k) => !known.includes(k));
   let r;
-  if (target === 'total') r = num(v.liters * v.price, 2);
-  if (target === 'liters') r = num(v.total / v.price, 2);
-  if (target === 'price') r = num(v.total / v.liters, 3, 3);
+  if (target === 'total') r = num(v.liters * (v.price - c) - D, 2);
+  if (target === 'liters') r = num((v.total + D) / (v.price - c), 2);
+  if (target === 'price') r = num((v.total + D) / v.liters + c, 3, 3);
   form[target].value = r;
   form[target].classList.add('auto');
   known.forEach((k) => form[k].classList.remove('auto'));
+  if (discountRule) form.discount.value = num(parseNum(form.liters.value) * c, 2);
   updateHint();
 }
 
@@ -592,6 +619,8 @@ function updateHint() {
 }
 
 ['liters', 'price', 'total'].forEach((k) => form[k].addEventListener('input', () => { form[k].classList.remove('auto'); autoCalc(k); }));
+form.discount.addEventListener('input', () => { discountManual = form.discount.value.trim() !== ''; autoCalc(null); });
+form.station.addEventListener('input', () => autoCalc(null));
 ['odometer', 'date'].forEach((k) => form[k].addEventListener('input', updateHint));
 form.full.addEventListener('change', updateHint);
 // Anteil-Zeile nur bei „Gemischt“ zeigen
@@ -626,6 +655,7 @@ async function handleScan(file) {
     if (isNum(r.total)) set('total', num(r.total, 2));
     if (r.fuel) form.fuel.value = r.fuel;
     if (r.station && !form.station.value) set('station', r.station);
+    if (r.discount > 0) { set('discount', num(r.discount, 2)); discountManual = true; $('#disc-auto').textContent = `${r.discountLabel || 'Rabatt'} vom Beleg`; $('#disc-auto').classList.add('on'); }
     edits = ['liters', 'price', 'total'].filter((k) => found.includes(k));
     updateHint();
     const core = ['liters', 'price', 'total'].filter((k) => found.includes(k)).length;
@@ -664,7 +694,7 @@ form.addEventListener('submit', async (ev) => {
     (liters > 0 ? form.price : form.liters).focus();
     return;
   }
-  if (!(total > 0)) total = Math.round(liters * price * 100) / 100;
+  if (!(total > 0)) total = Math.round((liters * price - (parseNum(form.discount.value) || 0)) * 100) / 100;
   const odo = parseNum(form.odometer.value);
   const share = Math.max(0, Math.min(100, parseInt(form.share.value, 10) || 0));
   const entry = {
@@ -672,6 +702,7 @@ form.addEventListener('submit', async (ev) => {
     id: editing?.id || uid(),
     date: new Date(form.date.value || Date.now()).toISOString(),
     liters, price, total,
+    discount: Math.max(0, parseNum(form.discount.value) || 0),
     odometer: isNum(odo) ? Math.round(odo) : null,
     full: form.full.checked,
     fuel: form.fuel.value,

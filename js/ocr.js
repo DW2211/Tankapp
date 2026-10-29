@@ -251,6 +251,25 @@ function solve(lines) {
   return { best, prices, twos };
 }
 
+const KW_DISC = /(RABATT|NACHLASS|COUPON|GUTSCHEIN|VORTEIL|ERSPARNIS|ADAC|CLUBSMART|ABZUG)/i;
+
+/** Findet eine Rabattzeile, z. B. „ADAC-Rabatt -0,48“ oder „Nachlass 0,010 EUR/l“ */
+function findDiscount(lines, liters) {
+  for (const line of lines) {
+    if (!KW_DISC.test(line) || /PUNKTE|°P\b|PKT/i.test(line)) continue;
+    const m = line.match(/(-?)\s?(\d{1,2})[,.](\d{2,3})(\s*-)?(\s*(EUR|€)?\s*\/\s*(l|L|1|Ltr))?/);
+    if (!m) continue;
+    const v = parseFloat(`${m[2]}.${m[3]}`);
+    const perLiter = !!m[5] || (m[3].length === 3 && v < 0.3);
+    const amount = perLiter ? (isNum(liters) ? Math.round(liters * v * 100) / 100 : NaN) : v;
+    if (!(amount > 0) || amount > 50) continue;
+    const kw = line.match(KW_DISC)[1].toUpperCase();
+    const label = { ADAC: 'ADAC-Rabatt', CLUBSMART: 'ClubSmart' }[kw] || kw[0] + kw.slice(1).toLowerCase();
+    return { amount, label };
+  }
+  return null;
+}
+
 /** Wertet den erkannten Text eines deutschen Tankbelegs aus. Exportiert für Tests. */
 export function parseReceipt(raw) {
   const text = raw
@@ -283,6 +302,15 @@ export function parseReceipt(raw) {
     else if (r.total && r.price && !r.liters) r.liters = Math.round((r.total / r.price) * 100) / 100;
     else if (r.liters && r.price && !r.total) r.total = Math.round(r.liters * r.price * 100) / 100;
     if (isNum(r.price) && (r.price < 0.9 || r.price > 3.5)) delete r.price;
+  }
+
+  // --- Rabatt (ADAC, Coupon, Tankkarte …) ---
+  const disc = findDiscount(lines, r.liters);
+  if (disc && isNum(r.total) && disc.amount < r.total * 0.3) {
+    r.discount = disc.amount;
+    r.discountLabel = disc.label;
+    // Der Betrag aus Liter × Preis ist vor Abzug – bezahlt wurde weniger
+    if (r.consistent) r.total = Math.round((r.total - disc.amount) * 100) / 100;
   }
 
   // --- Kraftstoff ---

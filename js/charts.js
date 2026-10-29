@@ -1,6 +1,6 @@
 // Börsen-Chart (TradingView Lightweight Charts): Preis als Kerzen/Linie, Liter als "Volumen", Kosten als Depotkurve.
 import { $, cssVar, fuelPrice, eur, num, signed, isNum, fmtDate, DAY, avg } from './util.js';
-import { consumptionSegments } from './stats.js';
+import { consumptionSegments, paidPrice } from './stats.js';
 
 let chart, series = [], hoverHandler;
 const el = () => $('#chart');
@@ -140,7 +140,7 @@ export function renderChart({ entries, snapshots, mode, range, style }, onHover)
     if (!list.length) {
       empty('Noch keine Tankungen in diesem Zeitraum.<br>Tippe auf <b>+</b> und scanne deinen ersten Beleg.');
     } else {
-      const pts = list.map((e) => ({ ms: new Date(e.date).getTime(), v: e.price, e }));
+      const pts = list.map((e) => ({ ms: new Date(e.date).getTime(), v: paidPrice(e), e }));
       const first = pts[0].v, last = pts[pts.length - 1].v, diff = last - first;
       const color = diff > 0 ? up : down;
 

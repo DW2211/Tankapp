@@ -311,6 +311,7 @@ main { position: relative; z-index: 1; max-width: 680px; margin: 0 auto; padding
 .entry .day span { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; }
 .entry .title { font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .entry .meta { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.entry .meta .disc-c { color: #bf5af2; font-weight: 600; }
 .entry .amount { text-align: right; font: 800 17px var(--rounded); font-variant-numeric: tabular-nums; }
 .entry .amount small { display: block; font-size: 12px; font-weight: 700; margin-top: 2px; }
 
@@ -441,6 +442,13 @@ dialog.sheet .sheet-head { background: var(--bg-2); }
 .big-inputs label.accent { background: var(--grad-soft); }
 .big-inputs span { font-size: 12px; font-weight: 700; color: var(--muted); }
 .big-inputs input { background: none; padding: 0; border-radius: 0; font: 800 22px/1.2 var(--rounded); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.disc-line { display: flex; align-items: center; gap: 12px; background: var(--surface); border: .5px solid var(--stroke); border-radius: var(--r-md); padding: 8px 14px; margin-top: -6px; }
+.disc-ico { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; background: color-mix(in srgb, #bf5af2 18%, transparent); color: #bf5af2; font-weight: 800; flex: none; }
+.disc-lbl { flex: 1; font-size: 15px; font-weight: 600; min-width: 0; }
+.disc-lbl small { display: block; font-size: 12px; font-weight: 500; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.disc-lbl small.on { color: #bf5af2; }
+.disc-in { display: flex; align-items: center; gap: 4px; font: 800 18px var(--rounded); color: #bf5af2; }
+.disc-in input { width: 62px; text-align: left; background: none; padding: 6px 0; font: 800 18px var(--rounded); color: #bf5af2; }
 .calc-hint { font-size: 13px; color: var(--muted); min-height: 18px; margin-top: -6px; padding: 0 4px; }
 .lightbox { background: transparent; max-height: 100dvh; margin: auto; }
 .lightbox form { display: flex; flex-direction: column; gap: 12px; align-items: center; padding: 12px; }
