@@ -1,0 +1,15 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "io.github.dw2211.tankbuch",
+      "sha256_cert_fingerprints": [
+        "23:AD:46:14:2B:03:A2:2E:04:41:1F:90:1C:9A:A7:BF:CB:3D:9F:2C:D7:70:BC:B4:D3:76:62:04:B7:CF:63:53",
+        "3F:04:A6:1B:C6:F0:57:32:F0:01:67:79:34:9C:1A:AE:DD:2B:69:23:B7:13:C8:01:66:42:E8:1B:09:18:43:02"
+      ]
+    }
+  }
+]

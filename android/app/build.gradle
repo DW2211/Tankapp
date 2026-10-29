@@ -28,7 +28,9 @@ android {
         resValue 'string', 'app_name', 'Tankbuch'
         resValue 'string', 'launch_url', "https://${appHost}${startPath}"
         resValue 'string', 'provider_authority', 'io.github.dw2211.tankbuch.fileprovider'
-        resValue 'string', 'asset_statements', """[{ "relation": ["delegate_permission/common.handle_all_urls"], "target": { "namespace": "web", "site": "https://${appHost}" } }]"""
+        // Anführungszeichen müssen in Android-Textressourcen maskiert werden, sonst entfernt aapt sie
+        def assetStatements = """[{ "relation": ["delegate_permission/common.handle_all_urls"], "target": { "namespace": "web", "site": "https://${appHost}" } }]"""
+        resValue 'string', 'asset_statements', assetStatements.replace('"', '\\"')
     }
 
     signingConfigs {
