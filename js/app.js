@@ -540,6 +540,7 @@ function openEntry(entry, prefill = {}) {
   $('#entry-title').textContent = entry ? 'Tankung bearbeiten' : 'Tanken erfassen';
   $('#entry-delete').hidden = !entry;
   $('#scan-progress').hidden = true;
+  $('#ocr-text').hidden = true;
   showReceipt(null);
   if (entry?.receiptId) store.getReceipt(entry.receiptId).then((b) => b && showReceipt(URL.createObjectURL(b)));
   updateHint();
@@ -630,6 +631,10 @@ async function handleScan(file) {
     const core = ['liters', 'price', 'total'].filter((k) => found.includes(k)).length;
     toast(core === 3 ? '✅ Beleg erkannt – bitte kurz prüfen' : core ? 'Teilweise erkannt – bitte ergänzen' : 'Nichts erkannt – Foto gerader & heller aufnehmen');
     console.debug('[OCR]', r.text);
+    const box = $('#ocr-text');
+    $('pre', box).textContent = r.text.trim() || '(kein Text erkannt)';
+    box.hidden = false;
+    box.open = core < 3;
   } catch (err) {
     console.error(err);
     toast('Scan fehlgeschlagen: ' + (err.message || 'Texterkennung nicht verfügbar (offline?)'));
@@ -640,6 +645,9 @@ async function handleScan(file) {
 }
 $('#scan-camera').addEventListener('change', (e) => { handleScan(e.target.files[0]); e.target.value = ''; });
 $('#scan-file').addEventListener('change', (e) => { handleScan(e.target.files[0]); e.target.value = ''; });
+$('#ocr-copy').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText($('#ocr-text pre').textContent); toast('Text kopiert – schick ihn mir, wenn etwas nicht stimmt'); } catch { toast('Kopieren nicht möglich'); }
+});
 $('#receipt-remove').addEventListener('click', () => { pendingReceipt = 'remove'; showReceipt(null); });
 $('#receipt-preview img').addEventListener('click', (e) => {
   const lb = $('#receipt-dialog');

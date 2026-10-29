@@ -430,6 +430,9 @@ dialog.sheet .sheet-head { background: var(--bg-2); }
 .scan-progress { display: flex; flex-direction: column; gap: 8px; font-size: 14px; color: var(--muted); }
 .scan-progress .bar { height: 6px; background: var(--surface-2); border-radius: 3px; overflow: hidden; }
 .scan-progress .bar i { display: block; height: 100%; width: 0; background: var(--grad); border-radius: 3px; transition: width .25s; }
+.ocr-text { background: var(--surface); border: .5px solid var(--stroke); border-radius: var(--r-md); padding: 10px 14px; font-size: 14px; color: var(--text-2); }
+.ocr-text summary { cursor: pointer; font-weight: 600; color: var(--accent); }
+.ocr-text pre { margin: 10px 0; max-height: 220px; white-space: pre-wrap; font-size: 12px; }
 .receipt-preview { display: flex; align-items: center; gap: 14px; padding: 10px; border-radius: var(--r-md); background: var(--surface); border: .5px solid var(--stroke); }
 .receipt-preview img { width: 54px; height: 70px; object-fit: cover; border-radius: 10px; cursor: zoom-in; }
 .receipt-preview b { display: block; font-size: 15px; }
