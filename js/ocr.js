@@ -154,7 +154,7 @@ function estimateSkew(bin, w, h) {
  * 1. Beleg im Foto finden und ausschneiden (auf einer kleinen Vorschau)
  * 2. Schräglage erkennen und gerade drehen
  * 3. Ausschnitt aus dem Originalfoto in hoher Auflösung holen – Schrift soll ~30 px hoch sein
- * 4. mode 'adaptive': lokaler Schwellwert · mode 'gray': Kontrast gestreckt, Tesseract binarisiert selbst
+ * 4. mode 'adaptive': lokaler Schwellwert · 'gray'/'raw': Kontrast gestreckt, Tesseract binarisiert selbst
  * 5. Dunkle Flächen am Rand entfernen, weißer Rand drumherum
  */
 async function preprocess(file, mode) {
@@ -206,11 +206,14 @@ async function preprocess(file, mode) {
     const k = 255 / Math.max(1, hi - lo);
     out = new Uint8ClampedArray(gray.length);
     for (let i = 0; i < gray.length; i++) out[i] = (gray[i] - lo) * k;
-    // dunkle Randflächen (Tisch, Hose, Autositz) aufhellen
-    const t = otsu(out), mask = new Uint8ClampedArray(out.length);
-    for (let i = 0; i < out.length; i++) mask[i] = out[i] < t * 0.8 ? 0 : 255;
-    clearBorder(mask, w, h);
-    for (let i = 0; i < out.length; i++) if (mask[i] === 255 && out[i] < t * 0.8) out[i] = 255;
+    // dunkle Randflächen (Tisch, Hose, Autositz) aufhellen – nicht im 'raw'-Durchgang: bei geknitterten
+    // Belegen hängt Schrift am Rand über Schatten mit dem Untergrund zusammen und würde mit gelöscht
+    if (mode === 'gray') {
+      const t = otsu(out), mask = new Uint8ClampedArray(out.length);
+      for (let i = 0; i < out.length; i++) mask[i] = out[i] < t * 0.8 ? 0 : 255;
+      clearBorder(mask, w, h);
+      for (let i = 0; i < out.length; i++) if (mask[i] === 255 && out[i] < t * 0.8) out[i] = 255;
+    }
   }
 
   // 5. weißer Rand
@@ -232,7 +235,8 @@ function quality(r) {
 
 export async function scanReceipt(file, onProgress) {
   onProgress?.(0.05);
-  const passes = window.__ocrCfg?.modes || ['adaptive', 'gray'];
+  // bis zu drei Durchgänge, jeder weitere nur wenn noch etwas fehlt
+  const passes = window.__ocrCfg?.modes || ['adaptive', 'gray', 'raw'];
   let best = null;
   const texts = [];
   for (let i = 0; i < passes.length; i++) {
@@ -245,7 +249,7 @@ export async function scanReceipt(file, onProgress) {
     const r = parseReceipt(data.text);
     if (!best || quality(r) > quality(best)) best = { ...best, ...r };
     else for (const k of ['date', 'station', 'fuel']) if (best[k] == null && r[k] != null) best[k] = r[k];
-    if (best.consistent && best.date) break; // reicht – zweiter Durchgang spart Zeit
+    if (best.consistent && best.date && best.station) break; // reicht – zweiter Durchgang spart Zeit
   }
   progressCb = null;
   onProgress?.(1);
@@ -423,7 +427,7 @@ export function parseReceipt(raw) {
   // --- Tankstelle ---
   // typische OCR-Verwechslungen (She11, ESS0, ARAl) vor der Markensuche glätten
   const upper = text.toUpperCase()
-    .replace(/SH[E3][L1I|\]]{2}/g, 'SHELL').replace(/[E3]SS[O0]/g, 'ESSO').replace(/AR[A4][L1I|]/g, 'ARAL').replace(/\bJ[E3]T\b/g, 'JET');
+    .replace(/\bSH[E3][L1I|\]]{1,2}(?=\s|$)/gm, 'SHELL').replace(/[E3]SS[O0]/g, 'ESSO').replace(/AR[A4][L1I|]/g, 'ARAL').replace(/\bJ[E3]T\b/g, 'JET');
   const head = upper.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).slice(0, 8).join(' ');
   const brand = BRANDS.find((b) => new RegExp(`\\b${b}\\b`).test(head)) || BRANDS.find((b) => new RegExp(`\\b${b}\\b`).test(upper));
   const street = lines.slice(0, 10).find((l) => /[a-zäöüß]{3,}(str\.|straße|strasse|weg|allee|platz|ring|damm|chaussee)\s*\d+/i.test(l) || /\b(am|an der|im)\s+[A-ZÄÖÜ][a-zäöü]+\s+\d+/.test(l));
