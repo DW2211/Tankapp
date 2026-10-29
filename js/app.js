@@ -540,7 +540,9 @@ function openEntry(entry, prefill = {}) {
   form.share.value = e.usage === 'beruflich' ? 100 : e.share || 0;
   syncShareRow();
   form.note.value = e.note || '';
-  if (isNum(e.price)) edits.push('price');
+  // Bei bestehenden Tankungen gelten Liter und Preis als gesetzt → Rabatt ändert den Betrag
+  if (entry && isNum(e.liters) && isNum(e.price)) edits = ['liters', 'price'];
+  else if (isNum(e.price)) edits.push('price');
   $('#entry-title').textContent = entry ? 'Tankung bearbeiten' : 'Tanken erfassen';
   $('#entry-delete').hidden = !entry;
   $('#scan-progress').hidden = true;
@@ -914,6 +916,36 @@ store.onChange((kind) => {
 });
 
 /** Einrichtungs-Link: …/#setup&key=…&sheets=…&secret=… trägt alles mit einem Tipp ein */
+/**
+ * Tankung per Link: …/#tankung&datum=2026-10-21T18:41&liter=34,64&preis=1,989&rabatt=0,34&betrag=68,56&tankstelle=…
+ * Gibt es am selben Tag schon eine Tankung, wird sie zum Bearbeiten geöffnet, sonst eine neue vorausgefüllt.
+ * Gespeichert wird erst, wenn man auf „Sichern“ tippt.
+ */
+function applyEntryLink() {
+  if (!location.hash.startsWith('#tankung')) return false;
+  const p = new URLSearchParams(location.hash.slice(8));
+  history.replaceState(null, '', location.pathname);
+  const v = {};
+  const n = (k) => (p.get(k) != null ? parseNum(p.get(k)) : NaN);
+  if (p.get('datum') && !isNaN(new Date(p.get('datum')))) v.date = new Date(p.get('datum')).toISOString();
+  if (isNum(n('liter'))) v.liters = n('liter');
+  if (isNum(n('preis'))) v.price = n('preis');
+  if (isNum(n('betrag'))) v.total = n('betrag');
+  if (isNum(n('rabatt'))) v.discount = n('rabatt');
+  if (p.get('tankstelle')) v.station = p.get('tankstelle');
+  if (p.get('km') && isNum(n('km'))) v.odometer = n('km');
+  const day = v.date ? new Date(v.date).toDateString() : null;
+  const existing = day && store.getEntries().find((e) => new Date(e.date).toDateString() === day);
+  if (existing) {
+    openEntry({ ...existing, ...v });
+    toast('Tankung vom ' + fmtDate(existing.date) + ' angepasst – prüfen und „Sichern“ tippen', 5000);
+  } else {
+    openEntry(null, { fuel: S().fuel, full: true, usage: 'privat', ...v });
+    toast('Neue Tankung vorausgefüllt – prüfen und „Sichern“ tippen', 5000);
+  }
+  return true;
+}
+
 function applySetupLink() {
   if (!location.hash.startsWith('#setup')) return false;
   const p = new URLSearchParams(location.hash.slice(6));
@@ -966,10 +998,16 @@ function start() {
   renderAll();
   const hash = location.hash.slice(1);
   if (['stations', 'log', 'tax', 'settings'].includes(hash)) nav(hash);
-  if (new URLSearchParams(location.search).has('add')) openEntry(null);
+  const fromEntryLink = applyEntryLink();
+  if (fromEntryLink) { /* Formular ist offen */ } else if (new URLSearchParams(location.search).has('add')) openEntry(null);
   else if (!fromSetupLink && !S().onboarded && !store.getEntries().length) showOnboarding();
   loadStations();
   updateSuggestions();
+  // Links (Einrichtung / Tankung) auch verarbeiten, wenn die App schon offen ist
+  addEventListener('hashchange', () => {
+    if (location.hash.startsWith('#tankung')) applyEntryLink();
+    else if (location.hash.startsWith('#setup')) { applySetupLink(); renderAll(); }
+  });
   // Beim Zurückkehren in die App frische Preise holen
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') loadStations(); });
 }
