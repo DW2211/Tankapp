@@ -1,6 +1,6 @@
 // Offline-Fähigkeit. Mit Internet kommt immer die neueste Version vom Server (network-first),
 // der Cache ist nur der Rückfall ohne Netz. So bleibt nach einem Update nie eine alte Version hängen.
-const VERSION = 'tankbuch-v6';
+const VERSION = 'tankbuch-v7';
 const SHELL = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest',
   'js/app.js', 'js/util.js', 'js/store.js', 'js/charts.js', 'js/stats.js', 'js/stations.js', 'js/ocr.js', 'js/sheets.js', 'js/tax.js', 'js/demo.js', 'js/ui.js',
