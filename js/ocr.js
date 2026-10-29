@@ -421,8 +421,10 @@ export function parseReceipt(raw) {
   else if (/E\s?5\b|SUPER/i.test(text)) r.fuel = 'E5';
 
   // --- Tankstelle ---
-  const upper = text.toUpperCase();
-  const head = lines.slice(0, 8).join(' ').toUpperCase();
+  // typische OCR-Verwechslungen (She11, ESS0, ARAl) vor der Markensuche glätten
+  const upper = text.toUpperCase()
+    .replace(/SH[E3][L1I|\]]{2}/g, 'SHELL').replace(/[E3]SS[O0]/g, 'ESSO').replace(/AR[A4][L1I|]/g, 'ARAL').replace(/\bJ[E3]T\b/g, 'JET');
+  const head = upper.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).slice(0, 8).join(' ');
   const brand = BRANDS.find((b) => new RegExp(`\\b${b}\\b`).test(head)) || BRANDS.find((b) => new RegExp(`\\b${b}\\b`).test(upper));
   const street = lines.slice(0, 10).find((l) => /[a-zäöüß]{3,}(str\.|straße|strasse|weg|allee|platz|ring|damm|chaussee)\s*\d+/i.test(l) || /\b(am|an der|im)\s+[A-ZÄÖÜ][a-zäöü]+\s+\d+/.test(l));
   const brandName = brand && (brand.length <= 4 ? brand : brand[0] + brand.slice(1).toLowerCase());
