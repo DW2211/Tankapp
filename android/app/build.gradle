@@ -16,8 +16,9 @@ android {
         minSdk 24
         targetSdk 36
         // versionCode bei jedem Store-Upload erhöhen (CI setzt ihn automatisch aus der Laufnummer)
-        versionCode (System.getenv('VERSION_CODE') ?: '1').toInteger()
-        versionName '1.0.' + (System.getenv('VERSION_CODE') ?: '1')
+        def buildNumber = (System.getenv('VERSION_CODE') ?: '1') as Integer
+        versionCode = buildNumber
+        versionName = "1.0.${buildNumber}"
 
         manifestPlaceholders = [
             hostName       : appHost,
