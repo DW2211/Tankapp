@@ -8,6 +8,8 @@ import { yearReport, commuteAllowance, exportCsv, printReport, exportReceipts } 
 import * as stats from './stats.js';
 import { demoData } from './demo.js';
 import { brandBadge, sparkline, ICONS, countUp, greeting } from './ui.js';
+import { buySignal, renderSignal } from './signal.js';
+import { yearStats, openWrapped } from './wrapped.js';
 
 const S = store.getSettings;
 let stationData = null;   // { stations, pos, fetchedAt }
@@ -172,6 +174,11 @@ function renderInsights() {
     items.unshift(`<li><span class="ico">💾</span><span><b>Deine Daten sind nur auf diesem Handy.</b> ${s.lastExport ? `Letztes Backup vor ${Math.round((Date.now() - s.lastExport) / DAY)} Tagen.` : 'Noch kein Backup.'} <button class="link" data-backup-now>Jetzt sichern</button> oder <a href="#settings" data-nav="settings">Google-Sicherung einrichten</a>.</span></li>`);
   }
 
+  const m = new Date().getMonth();
+  if ((m >= 10 || m === 0) && stats.inRange(entries, ...stats.yearRange(wrappedYear())).length >= 3) {
+    items.unshift(`<li class="wrapped-teaser"><span class="ico">🎉</span><span><b>Dein Tank-Jahr ${wrappedYear()} ist da!</b> Liter, Kosten, deine Stamm-Tankstelle und welcher Tank-Typ du bist. <button class="link" data-wrapped>Jetzt ansehen</button></span></li>`);
+  }
+
   if (!entries.length) {
     add('👋', 'Willkommen! Tippe unten auf <b>+</b> und scanne deinen ersten Tankbeleg – oder lade in den Einstellungen Demo-Daten.');
     add('🔑', 'Für Live-Preise in deiner Nähe: kostenlosen Tankerkönig-API-Key in den <a href="#settings" data-nav="settings">Einstellungen</a> eintragen.');
@@ -301,8 +308,34 @@ function renderHero() {
   heroPrice = best.eff;
 }
 
+/** Kaufsignal: aktueller günstigster Preis (live oder letzte Messung der letzten 90 Min.) + gelernter Tagesverlauf */
+function renderSignalCard() {
+  const el = $('#signal');
+  const snaps = store.getSnapshots();
+  if (!S().apiKey && !snaps.length) return renderSignal(el, null);
+  const open = stationData?.stations.filter((s) => s.isOpen) || [];
+  let price = open.length ? Math.min(...open.map((s) => s.price)) : NaN;
+  if (!isNum(price)) {
+    const last = snaps[snaps.length - 1];
+    if (last && Date.now() - last.t < 90 * 60 * 1000) price = last.min;
+  }
+  const sig = buySignal({ snapshots: snaps, price, liters: fillLiters() });
+  renderSignal(el, sig.state === 'learning' || isNum(price) ? sig : null);
+}
+
+/** Jahr für den Rückblick: im Januar noch das Vorjahr */
+const wrappedYear = () => (new Date().getMonth() === 0 ? new Date().getFullYear() - 1 : new Date().getFullYear());
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-wrapped]');
+  if (!b) return;
+  haptic();
+  const year = +(b.dataset.wrapped || wrappedYear());
+  openWrapped(yearStats(store.getEntries(), store.getSnapshots(), year, S()));
+});
+
 function renderNearby() {
   renderHero();
+  renderSignalCard();
   const el = $('#nearby-list');
   const wrap = [el, el.previousElementSibling];
   const hide = (h) => wrap.forEach((x) => (x.hidden = h));
@@ -435,6 +468,11 @@ function renderLog() {
   });
   const all = store.getEntries();
   const snaps = store.getSnapshots();
+  const wy = sel.value === 'all' ? wrappedYear() : +sel.value;
+  const wb = $('#wrapped-btn');
+  wb.hidden = stats.inRange(all, ...stats.yearRange(wy)).length < 3;
+  wb.dataset.wrapped = wy;
+  wb.innerHTML = `🎉 Dein Tank-Jahr ${wy} ansehen`;
   const rated = entries.map((e) => stats.rateFill(e, all, snaps)).filter(Boolean);
   const good = rated.filter((r) => r.verdict === 'good').length, bad = rated.filter((r) => r.verdict === 'bad').length;
   $('#log-score').innerHTML = rated.length
